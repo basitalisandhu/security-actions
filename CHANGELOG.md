@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- `llms-txt-check`: added `--sorted` flag and `LLMS-015` rule (note) to report sections and link entries not in the generator's deterministic order.
+
 ### Changed
 
 - Removed the umbrella branding; this project stands alone and links its sibling repositories directly.

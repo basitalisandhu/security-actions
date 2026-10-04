@@ -15,7 +15,7 @@ list item that is not a Markdown link (warning), LLMS-007 heading deeper than H2
 one H1 (error), LLMS-009 relative link that does not resolve in the site directory (warning), LLMS-010 remote
 link that does not answer 2xx or 3xx (warning, only with --check-links on a URL source), LLMS-011 empty link
 target (warning), LLMS-012 duplicate link target (note), LLMS-013 file is empty (error), LLMS-014 no
-llms-full.txt next to it (note).
+llms-full.txt next to it (note), LLMS-015 sections or link entries not in generator order (note, only with --sorted).
 
 Outputs: JSON report (--json), Markdown summary appended to $GITHUB_STEP_SUMMARY (or --summary FILE), workflow
 annotations on stdout, $GITHUB_OUTPUT entries status, error-count, warning-count, llms-txt-path.
@@ -24,6 +24,7 @@ Exit codes: 0 pass, 1 fail according to --fail-on, 2 usage error. Standard libra
 from __future__ import annotations
 
 import argparse
+import builtins
 import json
 import os
 import re
@@ -136,7 +137,7 @@ def head_ok(url: str, timeout: int = DEFAULT_TIMEOUT) -> bool:
 
 
 def check_text(text: str, site_dir: Path | None = None, base_url: str = "", check_links: bool = False,
-               link_checker=head_ok, has_full: bool | None = None) -> list[Problem]:
+               link_checker=head_ok, has_full: bool | None = None, sorted: bool = False) -> list[Problem]:
     problems: list[Problem] = []
     if not text.strip():
         return [Problem("LLMS-013", "error", "llms.txt is empty")]
@@ -181,6 +182,17 @@ def check_text(text: str, site_dir: Path | None = None, base_url: str = "", chec
                     problems.append(Problem("LLMS-010", "warning", f"Link {url} did not answer with a 2xx or 3xx status", link["line"]))
     if has_full is False:
         problems.append(Problem("LLMS-014", "note", "No llms-full.txt found next to llms.txt (optional, holds the full documentation text)"))
+    if sorted and doc["sections"]:
+        section_names = [s["name"] for s in doc["sections"]]
+        expected_sections = builtins.sorted(section_names, key=lambda s: (s != "Docs", s))
+        if section_names != expected_sections:
+            first_line = next((s["line"] for s, exp in zip(doc["sections"], expected_sections) if s["name"] != exp), doc["sections"][0]["line"])
+            problems.append(Problem("LLMS-015", "note", "Section list is not in the generator's order ('Docs' first, then alphabetical)", first_line))
+        for s in doc["sections"]:
+            if len(s["links"]) > 1:
+                expected_links = builtins.sorted(s["links"], key=lambda l: (not l["url"].strip().rstrip("/").endswith(("README.md", "index.md", "index.html", "index")), l["name"].lower()))
+                if [l["line"] for l in s["links"]] != [l["line"] for l in expected_links]:
+                    problems.append(Problem("LLMS-015", "note", f"Section '{s['name']}' link entries are not in the generator's order (README/index first, then alphabetical)", s["line"]))
     problems.sort(key=lambda p: (LEVEL_ORDER.index(p.level), p.line or 0, p.rule))
     return problems
 
@@ -322,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--summary-text", default="", help="generate: blockquote summary")
     ap.add_argument("--link-format", choices=["md", "html", "none"], default="md", help="generate: keep .md, use .html, or drop the extension")
     ap.add_argument("--check-links", action="store_true", help="check remote links with HEAD requests (bounded to 50)")
+    ap.add_argument("--sorted", action="store_true", help="check: report sections and link entries not in the generator's deterministic order (LLMS-015)")
     ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     ap.add_argument("--fail-on", choices=["error", "warning", "none"], default="error")
     ap.add_argument("--json", dest="json_out", default="")
@@ -351,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
         problems = [Problem("LLMS-001", "error", f"llms.txt not found at {where}")]
     else:
         problems = check_text(text, site_dir=site_dir, base_url=base_url, check_links=args.check_links,
-                              link_checker=lambda u: head_ok(u, args.timeout), has_full=has_full)
+                              link_checker=lambda u: head_ok(u, args.timeout), has_full=has_full, sorted=args.sorted)
     counts = {l: sum(1 for p in problems if p.level == l) for l in LEVEL_ORDER}
     failed = (args.fail_on == "error" and counts["error"] > 0) or (args.fail_on == "warning" and (counts["error"] + counts["warning"]) > 0)
     status = "fail" if failed else "pass"

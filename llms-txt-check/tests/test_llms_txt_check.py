@@ -180,3 +180,40 @@ def test_strip_md_and_title_extraction():
     assert (title, excerpt) == ("Fallback Name", "no heading")
     long = "x" * 200
     assert ltc.title_and_excerpt(f"# T\n\n{long}\n", "f")[1].endswith("...")
+
+
+def test_sorted_flag_reports_out_of_order_sections_and_links(tmp_path):
+    sorted_text = "# Acme\n\n> Summary.\n\n## Docs\n\n- [Overview](/README.md)\n- [Architecture](/architecture.md)\n- [Guide](/guide.md)\n\n## Reference\n\n- [API](/api.md)\n- [CLI](/cli.md)\n"
+    unsorted_sections = "# Acme\n\n> Summary.\n\n## Reference\n\n- [API](/api.md)\n\n## Docs\n\n- [Overview](/README.md)\n"
+    unsorted_links = "# Acme\n\n> Summary.\n\n## Docs\n\n- [Guide](/guide.md)\n- [Architecture](/architecture.md)\n"
+    unsorted_readme_last = "# Acme\n\n> Summary.\n\n## Docs\n\n- [Architecture](/architecture.md)\n- [Overview](/README.md)\n"
+
+    # Sorted file produces no findings with or without --sorted
+    assert "LLMS-015" not in rules(ltc.check_text(sorted_text, sorted=False))
+    assert "LLMS-015" not in rules(ltc.check_text(sorted_text, sorted=True))
+
+    # Unsorted files produce no finding without the flag
+    assert "LLMS-015" not in rules(ltc.check_text(unsorted_sections, sorted=False))
+    assert "LLMS-015" not in rules(ltc.check_text(unsorted_links, sorted=False))
+    assert "LLMS-015" not in rules(ltc.check_text(unsorted_readme_last, sorted=False))
+
+    # Unsorted files produce LLMS-015 finding with the flag
+    p_sec = ltc.check_text(unsorted_sections, sorted=True)
+    assert "LLMS-015" in rules(p_sec)
+    assert any("Section list" in p.message for p in p_sec if p.rule == "LLMS-015")
+
+    p_links = ltc.check_text(unsorted_links, sorted=True)
+    assert "LLMS-015" in rules(p_links)
+    assert any("link entries" in p.message for p in p_links if p.rule == "LLMS-015")
+
+    p_readme = ltc.check_text(unsorted_readme_last, sorted=True)
+    assert "LLMS-015" in rules(p_readme)
+
+    # CLI runs with --sorted flag
+    (tmp_path / "llms.txt").write_text(unsorted_sections)
+    rc_without, report_without, _, _ = run(tmp_path, "--source", str(tmp_path), "--fail-on", "none")
+    assert "LLMS-015" not in [p["rule"] for p in report_without["problems"]]
+
+    rc_with, report_with, _, _ = run(tmp_path, "--source", str(tmp_path), "--sorted", "--fail-on", "none")
+    assert "LLMS-015" in [p["rule"] for p in report_with["problems"]]
+
