@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed the umbrella project from Hisar to Masoon; links, names and identifiers updated.
+
 ## [1.0.0] - 2026-10-03
 
 ### Added

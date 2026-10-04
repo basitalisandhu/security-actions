@@ -90,7 +90,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the checklist, [docs/good-first-issue
 
 ## Sibling projects
 
-- [hisar](https://github.com/basitalisandhu/hisar): open-source trust infrastructure for AI agents: who they are, what they may touch, and proof of what they did.
+- [masoon](https://github.com/basitalisandhu/masoon): open-source trust infrastructure for AI agents: who they are, what they may touch, and proof of what they did.
 - [agentic-semgrep-rules](https://github.com/basitalisandhu/agentic-semgrep-rules): Semgrep rules for AI agent code, with its own composite action.
 - [agent-security-skills](https://github.com/basitalisandhu/agent-security-skills): the agent configuration audit script in this repository is copied from the `agent-config-audit` skill there.
 - [.github](https://github.com/basitalisandhu/.github): reusable security baseline workflow (CodeQL, gitleaks, dependency review, Scorecard).
