@@ -1,0 +1,9 @@
+# application requirements
+-r base.txt
+requests==2.32.3  # http client
+Pydantic[email]>=2.0 ; python_version >= "3.8"
+copyleft_tool
+--index-url https://pypi.org/simple
+./local-package
+git+https://github.com/example/thing.git#egg=thing
+not-installed-pkg

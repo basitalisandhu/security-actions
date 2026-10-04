@@ -1,0 +1,14 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "app",
+  "documentDescribes": ["SPDXRef-Package-app"],
+  "packages": [
+    {"SPDXID": "SPDXRef-Package-app", "name": "app", "versionInfo": "1.0.0", "licenseConcluded": "NOASSERTION"},
+    {"SPDXID": "SPDXRef-Package-lodash", "name": "lodash", "versionInfo": "4.17.21", "licenseConcluded": "MIT", "licenseDeclared": "MIT",
+     "externalRefs": [{"referenceCategory": "PACKAGE-MANAGER", "referenceType": "purl", "referenceLocator": "pkg:npm/lodash@4.17.21"}]},
+    {"SPDXID": "SPDXRef-Package-gpl", "name": "gpl-thing", "versionInfo": "2.0.0", "licenseConcluded": "GPL-2.0-or-later", "licenseDeclared": "NOASSERTION",
+     "externalRefs": [{"referenceCategory": "PACKAGE-MANAGER", "referenceType": "purl", "referenceLocator": "pkg:pypi/gpl-thing@2.0.0"}]},
+    {"SPDXID": "SPDXRef-Package-nolic", "name": "nolic", "versionInfo": "0.1.0", "licenseConcluded": "NOASSERTION", "licenseDeclared": "NONE"}
+  ]
+}

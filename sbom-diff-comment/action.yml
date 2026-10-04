@@ -1,0 +1,96 @@
+name: "SBOM Diff Comment"
+description: "Diff two CycloneDX or SPDX JSON SBOMs (base vs head) and post or update one pull request comment listing added, removed and changed components and licence changes. Uses GITHUB_TOKEN through the REST API with bounded requests."
+author: "Muhammad Basit Ali (@basitalisandhu)"
+branding:
+  icon: git-pull-request
+  color: orange
+
+inputs:
+  base:
+    description: "Path to the base SBOM (CycloneDX JSON or SPDX JSON)."
+    required: true
+  head:
+    description: "Path to the head SBOM (CycloneDX JSON or SPDX JSON)."
+    required: true
+  comment:
+    description: "Post or update the pull request comment. Set to false to only write the Markdown file, summary and outputs."
+    required: false
+    default: "true"
+  token:
+    description: "Token used to comment. Needs pull-requests: write. Defaults to the workflow's GITHUB_TOKEN."
+    required: false
+    default: ${{ github.token }}
+  pr-number:
+    description: "Pull request number. Empty reads it from the workflow event (pull_request, issue_comment or workflow_run)."
+    required: false
+    default: ""
+  title:
+    description: "Heading of the comment."
+    required: false
+    default: "SBOM diff"
+  marker:
+    description: "Identifier inside the hidden marker, so several SBOM diffs (for example npm and pip) can each keep their own comment."
+    required: false
+    default: "default"
+  fail-on:
+    description: "none, any-change or license-change."
+    required: false
+    default: "none"
+  markdown-file:
+    description: "Where to write the comment body."
+    required: false
+    default: "sbom-diff.md"
+  timeout:
+    description: "Seconds to wait for each API request."
+    required: false
+    default: "30"
+  node-version:
+    description: "Node version to set up with actions/setup-node. Empty uses the node already on the runner (18 or later)."
+    required: false
+    default: ""
+
+outputs:
+  added-count:
+    description: "Components only in head."
+    value: ${{ steps.diff.outputs.added-count }}
+  removed-count:
+    description: "Components only in base."
+    value: ${{ steps.diff.outputs.removed-count }}
+  changed-count:
+    description: "Components whose version changed."
+    value: ${{ steps.diff.outputs.changed-count }}
+  license-change-count:
+    description: "Components whose licence set changed."
+    value: ${{ steps.diff.outputs.license-change-count }}
+  comment-url:
+    description: "URL of the comment that was created or updated (empty when no comment was posted)."
+    value: ${{ steps.diff.outputs.comment-url }}
+  markdown-file:
+    description: "Path of the Markdown body."
+    value: ${{ steps.diff.outputs.markdown-file }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Node
+      if: ${{ inputs.node-version != '' }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Diff SBOMs and comment
+      id: diff
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_HEAD: ${{ inputs.head }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_PR_NUMBER: ${{ inputs.pr-number }}
+        INPUT_TITLE: ${{ inputs.title }}
+        INPUT_MARKER: ${{ inputs.marker }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_MARKDOWN_FILE: ${{ inputs.markdown-file }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+      run: node "$ACTION_PATH/src/sbom_diff.mjs"

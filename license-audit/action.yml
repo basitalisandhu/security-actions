@@ -1,0 +1,127 @@
+name: "License Audit"
+description: "Flag dependency licences that are not in an allowlist. Reads package-lock.json, requirements.txt (with installed metadata) or a CycloneDX or SPDX SBOM, evaluates SPDX expressions, writes SARIF and a job summary."
+author: "Muhammad Basit Ali (@basitalisandhu)"
+branding:
+  icon: book-open
+  color: yellow
+
+inputs:
+  path:
+    description: "Project directory; report paths are relative to it."
+    required: false
+    default: "."
+  inputs:
+    description: "Files to read, one per line (package-lock.json, requirements.txt, *.cdx.json, *.spdx.json). Empty auto-detects package-lock.json, requirements.txt and SBOM files in path."
+    required: false
+    default: ""
+  allowlist:
+    description: "Comma or newline separated SPDX ids that are acceptable. Empty uses the built-in permissive list (MIT, Apache-2.0, BSD, ISC, 0BSD, Unlicense, CC0-1.0, BlueOak-1.0.0, Zlib, PSF-2.0, Python-2.0, MPL-2.0, CC-BY-4.0, BSL-1.0, Artistic-2.0, OFL-1.1, PostgreSQL, Unicode, WTFPL, X11, HPND, MIT-0, MIT-CMU)."
+    required: false
+    default: ""
+  denylist:
+    description: "Comma or newline separated SPDX ids that always fail, even inside an OR expression with an allowed alternative."
+    required: false
+    default: ""
+  ignore-packages:
+    description: "Comma or newline separated package names to skip."
+    required: false
+    default: ""
+  include-dev:
+    description: "Include npm dev dependencies."
+    required: false
+    default: "true"
+  site-packages:
+    description: "Directory with installed Python metadata for requirements.txt lookups. Empty uses the environment of the python3 that runs the action."
+    required: false
+    default: ""
+  fail-on:
+    description: "disallowed (disallowed or denied licences), unknown (also undeclared or unrecognised licences) or none."
+    required: false
+    default: "disallowed"
+  sarif-file:
+    description: "Where to write the SARIF 2.1.0 report."
+    required: false
+    default: "license-audit.sarif"
+  upload-sarif:
+    description: "Upload the SARIF report to GitHub code scanning (requires permissions: security-events: write)."
+    required: false
+    default: "true"
+  category:
+    description: "Code scanning category for the upload."
+    required: false
+    default: "license-audit"
+  python-version:
+    description: "Python version to set up with actions/setup-python. Empty uses the python3 already on the runner."
+    required: false
+    default: ""
+
+outputs:
+  package-count:
+    description: "Packages read from every input."
+    value: ${{ steps.audit.outputs.package-count }}
+  disallowed-count:
+    description: "Packages with a disallowed or denied licence."
+    value: ${{ steps.audit.outputs.disallowed-count }}
+  unknown-count:
+    description: "Packages with no licence information or an unrecognised licence."
+    value: ${{ steps.audit.outputs.unknown-count }}
+  sarif-file:
+    description: "Path of the SARIF report."
+    value: ${{ steps.audit.outputs.sarif-file }}
+  gate:
+    description: "pass or fail, according to fail-on."
+    value: ${{ steps.audit.outputs.gate }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      if: ${{ inputs.python-version != '' }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Audit licences
+      id: audit
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        AUDIT_PATH: ${{ inputs.path }}
+        INPUT_FILES: ${{ inputs.inputs }}
+        ALLOWLIST: ${{ inputs.allowlist }}
+        DENYLIST: ${{ inputs.denylist }}
+        IGNORE_PACKAGES: ${{ inputs.ignore-packages }}
+        INCLUDE_DEV: ${{ inputs.include-dev }}
+        SITE_PACKAGES: ${{ inputs.site-packages }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+      run: |
+        args=(--root "$AUDIT_PATH" --allowlist "$ALLOWLIST" --denylist "$DENYLIST" --ignore-packages "$IGNORE_PACKAGES" --fail-on "$FAIL_ON" --sarif "$SARIF_FILE")
+        [ "$INCLUDE_DEV" = "true" ] || args+=(--no-dev)
+        [ -n "$SITE_PACKAGES" ] && args+=(--site-packages "$SITE_PACKAGES")
+        while IFS= read -r line; do
+          [ -n "$line" ] && args+=(--input "$line")
+        done <<< "$INPUT_FILES"
+        set +e
+        python3 "$ACTION_PATH/src/license_audit.py" "${args[@]}"
+        rc=$?
+        set -e
+        if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+
+    - name: Upload SARIF to code scanning
+      if: ${{ inputs.upload-sarif == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: ${{ inputs.category }}
+
+    - name: Fail on licences outside the policy
+      if: ${{ steps.audit.outputs.gate == 'fail' }}
+      shell: bash
+      env:
+        DISALLOWED: ${{ steps.audit.outputs.disallowed-count }}
+        UNKNOWN: ${{ steps.audit.outputs.unknown-count }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        echo "::error::license-audit: $DISALLOWED disallowed or denied and $UNKNOWN unknown licence(s) (fail-on $FAIL_ON). See the job summary."
+        exit 1

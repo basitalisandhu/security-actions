@@ -1,0 +1,14 @@
+# Acme Docs
+
+> Acme is a tool that does a thing. This file lists the pages worth reading first.
+
+Acme ships as a CLI and a library. The guides below cover installation and daily use.
+
+## Docs
+
+- [Getting started](/docs/getting-started.md): Install Acme and run the first command
+- [Configuration](/docs/configuration.md): Every setting with its default
+
+## Optional
+
+- [Changelog](/docs/changelog.md)

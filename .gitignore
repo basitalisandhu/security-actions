@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.sarif
+sbom-diff.md
+generated-llms.txt
+release-notes.md
+
+# build and environment artifacts
+node_modules/
+# test fixtures that model an installed node_modules tree are part of the test suite
+!*/tests/fixtures/**/node_modules/
+.venv/
+venv/
+dist/
+build/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.DS_Store
+.semgrep/
+results.sarif

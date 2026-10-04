@@ -1,0 +1,96 @@
+name: "IndexNow Ping"
+description: "Submit changed URLs to IndexNow after a Pages or static site deploy, from a sitemap (with a changed-since filter) or an explicit list. Batches at the IndexNow limit, reports the endpoint status in the job summary."
+author: "Muhammad Basit Ali (@basitalisandhu)"
+branding:
+  icon: send
+  color: green
+
+inputs:
+  host:
+    description: "Host the URLs belong to, for example www.example.org."
+    required: true
+  key:
+    description: "IndexNow key (the text served at https://host/<key>.txt). Store it as a repository secret or variable."
+    required: false
+    default: ""
+  key-location:
+    description: "URL of the key file when it is not at https://host/<key>.txt."
+    required: false
+    default: ""
+  sitemap-url:
+    description: "Sitemap or sitemap index URL to read URLs from."
+    required: false
+    default: ""
+  urls:
+    description: "Explicit URLs to submit, one per line. Always submitted, regardless of changed-since."
+    required: false
+    default: ""
+  urls-file:
+    description: "File with one URL per line (lines starting with # are ignored)."
+    required: false
+    default: ""
+  changed-since:
+    description: "Only submit sitemap entries whose lastmod is at or after this ISO 8601 date, or within this duration (24h, 7d). Empty submits every entry."
+    required: false
+    default: ""
+  endpoint:
+    description: "IndexNow endpoint. The default shares submissions with every participating engine."
+    required: false
+    default: "https://api.indexnow.org/indexnow"
+  max-urls:
+    description: "Upper bound on the number of URLs submitted in one run."
+    required: false
+    default: "10000"
+  timeout:
+    description: "Seconds to wait for each HTTP request."
+    required: false
+    default: "30"
+  dry-run:
+    description: "List the selected URLs without sending the request."
+    required: false
+    default: "false"
+  node-version:
+    description: "Node version to set up with actions/setup-node. Empty uses the node already on the runner (18 or later)."
+    required: false
+    default: ""
+
+outputs:
+  url-count:
+    description: "Number of URLs selected for submission."
+    value: ${{ steps.ping.outputs.url-count }}
+  submitted-count:
+    description: "Number of URLs the endpoint accepted."
+    value: ${{ steps.ping.outputs.submitted-count }}
+  status-code:
+    description: "HTTP status of the last request to the endpoint (empty on a dry run)."
+    value: ${{ steps.ping.outputs.status-code }}
+  skipped-count:
+    description: "URLs skipped because of host, lastmod or parse problems."
+    value: ${{ steps.ping.outputs.skipped-count }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Node
+      if: ${{ inputs.node-version != '' }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Submit URLs to IndexNow
+      id: ping
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_KEY: ${{ inputs.key }}
+        INPUT_KEY_LOCATION: ${{ inputs.key-location }}
+        INPUT_SITEMAP_URL: ${{ inputs.sitemap-url }}
+        INPUT_URLS: ${{ inputs.urls }}
+        INPUT_URLS_FILE: ${{ inputs.urls-file }}
+        INPUT_CHANGED_SINCE: ${{ inputs.changed-since }}
+        INPUT_ENDPOINT: ${{ inputs.endpoint }}
+        INPUT_MAX_URLS: ${{ inputs.max-urls }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+      run: node "$ACTION_PATH/src/indexnow.mjs"

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "remote": {"type": "http", "url": "http://mcp.invalid/mcp", "headers": {"Authorization": "Bearer v9Qm2xL7pR4nB8kJ3wH6yT1cF5sD0aG2eZ8uV4iO7lM1"}},
+    "search": {"command": "npx", "args": ["-y", "@scope/search-server"]},
+    "files": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem@1.0.0", "/"]}
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "components": [
+    {"type": "library", "name": "lodash", "version": "4.17.21", "purl": "pkg:npm/lodash@4.17.21", "licenses": [{"license": {"id": "MIT"}}]},
+    {"type": "library", "name": "copyleft-lib", "version": "1.0.0", "purl": "pkg:npm/copyleft-lib@1.0.0", "licenses": [{"license": {"id": "GPL-3.0-only"}}]},
+    {"type": "library", "name": "named-lic", "version": "1.0.0", "purl": "pkg:pypi/named-lic@1.0.0", "licenses": [{"license": {"name": "Apache License 2.0"}}]},
+    {"type": "library", "name": "expr-lib", "version": "2.0.0", "purl": "pkg:npm/expr-lib@2.0.0", "licenses": [{"expression": "MIT OR Apache-2.0"}]},
+    {"type": "library", "name": "nolic", "version": "0.1.0", "purl": "pkg:npm/nolic@0.1.0"},
+    {"type": "library", "name": "parent", "version": "1.0.0", "purl": "pkg:npm/parent@1.0.0", "licenses": [{"license": {"id": "ISC"}}],
+     "components": [{"type": "library", "name": "nested-ssl", "version": "1.0.0", "purl": "pkg:npm/nested-ssl@1.0.0", "licenses": [{"license": {"id": "SSPL-1.0"}}]}]}
+  ]
+}

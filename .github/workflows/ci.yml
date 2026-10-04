@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate action and workflow files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: python -m pip install --quiet pyyaml
+
+      - name: Check every action.yml and workflow
+        run: python3 scripts/check_actions.py
+
+  python-tests:
+    name: Python tests (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+
+      - name: Run the Python suites
+        run: python3 -m pytest -q
+
+  node-tests:
+    name: Node tests (${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["18", "22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Run the Node suites
+        run: |
+          node --test indexnow-ping/tests/*.test.mjs
+          node --test sbom-diff-comment/tests/*.test.mjs
+
+  self-test:
+    name: Run each action on its fixtures
+    runs-on: ubuntu-latest
+    needs: [validate, python-tests, node-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: agent-config-audit
+        id: agent
+        uses: ./agent-config-audit
+        with:
+          path: agent-config-audit/tests/fixtures/risky
+          fail-on: none
+          upload-sarif: "false"
+          sarif-file: agent-config-audit.sarif
+
+      - name: agent-config-audit (gate must fail on the risky fixture)
+        id: agent-gate
+        uses: ./agent-config-audit
+        continue-on-error: true
+        with:
+          path: agent-config-audit/tests/fixtures/risky
+          fail-on: high
+          upload-sarif: "false"
+          sarif-file: agent-config-audit-gate.sarif
+
+      - name: Build the prompt-secrets-scan leaky fixture (generated, never committed)
+        run: python3 prompt-secrets-scan/tests/leaky_fixture.py "$RUNNER_TEMP/prompt-secrets-leaky"
+
+      - name: prompt-secrets-scan
+        id: secrets
+        uses: ./prompt-secrets-scan
+        with:
+          path: ${{ runner.temp }}/prompt-secrets-leaky
+          fail-on: none
+          upload-sarif: "false"
+          sarif-file: prompt-secrets-scan.sarif
+
+      - name: llms-txt-check (check)
+        id: llms-check
+        uses: ./llms-txt-check
+        with:
+          source: llms-txt-check/tests/fixtures/site-valid
+          fail-on: warning
+
+      - name: llms-txt-check (generate)
+        id: llms-generate
+        uses: ./llms-txt-check
+        with:
+          mode: generate
+          docs-dir: llms-txt-check/tests/fixtures/docs-src
+          output: generated-llms.txt
+          site-name: Fixture Docs
+          summary: Generated from the test fixtures.
+
+      - name: indexnow-ping (dry run, no network)
+        id: indexnow
+        uses: ./indexnow-ping
+        with:
+          host: www.example.org
+          dry-run: "true"
+          urls: |
+            https://www.example.org/
+            https://www.example.org/docs/
+            https://elsewhere.invalid/skipped
+
+      - name: sbom-diff-comment (no comment)
+        id: sbom
+        uses: ./sbom-diff-comment
+        with:
+          base: sbom-diff-comment/tests/fixtures/base.cdx.json
+          head: sbom-diff-comment/tests/fixtures/head.cdx.json
+          comment: "false"
+          markdown-file: sbom-diff.md
+
+      - name: license-audit
+        id: license
+        uses: ./license-audit
+        with:
+          path: license-audit/tests/fixtures/npm
+          fail-on: none
+          upload-sarif: "false"
+          sarif-file: license-audit.sarif
+
+      - name: Check outputs and SARIF structure
+        env:
+          AGENT_COUNT: ${{ steps.agent.outputs.finding-count }}
+          AGENT_GATE_OUTCOME: ${{ steps.agent-gate.outcome }}
+          SECRETS_COUNT: ${{ steps.secrets.outputs.finding-count }}
+          LLMS_STATUS: ${{ steps.llms-check.outputs.status }}
+          LLMS_GEN_STATUS: ${{ steps.llms-generate.outputs.status }}
+          INDEXNOW_URLS: ${{ steps.indexnow.outputs.url-count }}
+          INDEXNOW_SKIPPED: ${{ steps.indexnow.outputs.skipped-count }}
+          SBOM_ADDED: ${{ steps.sbom.outputs.added-count }}
+          SBOM_LICENSE: ${{ steps.sbom.outputs.license-change-count }}
+          LICENSE_DISALLOWED: ${{ steps.license.outputs.disallowed-count }}
+        run: |
+          test "$AGENT_COUNT" -gt 10
+          test "$AGENT_GATE_OUTCOME" = "failure"
+          test "$SECRETS_COUNT" -ge 11
+          test "$LLMS_STATUS" = "pass"
+          test "$LLMS_GEN_STATUS" = "pass"
+          test "$INDEXNOW_URLS" = "2"
+          test "$INDEXNOW_SKIPPED" = "1"
+          test "$SBOM_ADDED" = "2"
+          test "$SBOM_LICENSE" = "1"
+          test "$LICENSE_DISALLOWED" = "4"
+          test -s generated-llms.txt
+          grep -q "Licence changes" sbom-diff.md
+          python3 scripts/check_sarif.py agent-config-audit.sarif agent-config-audit-gate.sarif prompt-secrets-scan.sarif license-audit.sarif

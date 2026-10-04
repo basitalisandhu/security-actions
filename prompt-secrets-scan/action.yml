@@ -1,0 +1,105 @@
+name: "Prompt Secrets Scan"
+description: "Find API keys, private keys, bearer tokens, JSON Web Tokens, webhooks and connection strings inside prompt files, system prompts, Jupyter notebooks and agent instruction files. Writes SARIF and a job summary, honours an allowlist file."
+author: "Muhammad Basit Ali (@basitalisandhu)"
+branding:
+  icon: eye-off
+  color: red
+
+inputs:
+  path:
+    description: "Directory to scan, relative to the workspace."
+    required: false
+    default: "."
+  paths:
+    description: "Globs to scan (comma or newline separated), relative to path. Empty uses the built-in list of prompt, notebook and instruction file patterns."
+    required: false
+    default: ""
+  exclude:
+    description: "Globs to skip (comma or newline separated), matched against the relative path. node_modules, vendor, dist, build, virtualenvs and .git are always skipped."
+    required: false
+    default: ""
+  allowlist-file:
+    description: "Allowlist file with sha256:, re:, path:, rule: or literal entries. Empty uses .prompt-secrets-allowlist when it exists."
+    required: false
+    default: ""
+  fail-on:
+    description: "Lowest severity that fails the job: critical, high, medium, low or none."
+    required: false
+    default: "high"
+  sarif-file:
+    description: "Where to write the SARIF 2.1.0 report."
+    required: false
+    default: "prompt-secrets-scan.sarif"
+  upload-sarif:
+    description: "Upload the SARIF report to GitHub code scanning (requires permissions: security-events: write)."
+    required: false
+    default: "true"
+  category:
+    description: "Code scanning category for the upload."
+    required: false
+    default: "prompt-secrets-scan"
+  python-version:
+    description: "Python version to set up with actions/setup-python. Empty uses the python3 already on the runner."
+    required: false
+    default: ""
+
+outputs:
+  finding-count:
+    description: "Number of findings at every severity."
+    value: ${{ steps.scan.outputs.finding-count }}
+  files-scanned:
+    description: "Number of files that were scanned."
+    value: ${{ steps.scan.outputs.files-scanned }}
+  sarif-file:
+    description: "Path of the SARIF report."
+    value: ${{ steps.scan.outputs.sarif-file }}
+  gate:
+    description: "pass or fail, according to fail-on."
+    value: ${{ steps.scan.outputs.gate }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      if: ${{ inputs.python-version != '' }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Scan for secrets
+      id: scan
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        SCAN_PATH: ${{ inputs.path }}
+        SCAN_PATHS: ${{ inputs.paths }}
+        SCAN_EXCLUDE: ${{ inputs.exclude }}
+        ALLOWLIST: ${{ inputs.allowlist-file }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+      run: |
+        args=()
+        [ -n "$ALLOWLIST" ] && args+=(--allowlist "$ALLOWLIST")
+        set +e
+        python3 "$ACTION_PATH/src/prompt_secrets_scan.py" --root "$SCAN_PATH" --paths "$SCAN_PATHS" --exclude "$SCAN_EXCLUDE" \
+          --sarif "$SARIF_FILE" --fail-on "$FAIL_ON" "${args[@]}"
+        rc=$?
+        set -e
+        if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+
+    - name: Upload SARIF to code scanning
+      if: ${{ inputs.upload-sarif == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: ${{ inputs.category }}
+
+    - name: Fail on findings at or above the threshold
+      if: ${{ steps.scan.outputs.gate == 'fail' }}
+      shell: bash
+      env:
+        COUNT: ${{ steps.scan.outputs.finding-count }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        echo "::error::prompt-secrets-scan: $COUNT finding(s) at or above $FAIL_ON. Rotate the credentials and move them to a secret store; see the job summary."
+        exit 1

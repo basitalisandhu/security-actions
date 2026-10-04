@@ -1,0 +1,14 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "app",
+  "documentDescribes": ["SPDXRef-Package-app"],
+  "packages": [
+    {"SPDXID": "SPDXRef-Package-app", "name": "app", "versionInfo": "1.0.0", "licenseConcluded": "NOASSERTION"},
+    {"SPDXID": "SPDXRef-Package-npm-lodash", "name": "lodash", "versionInfo": "4.17.20", "licenseConcluded": "MIT", "licenseDeclared": "MIT",
+     "externalRefs": [{"referenceCategory": "PACKAGE-MANAGER", "referenceType": "purl", "referenceLocator": "pkg:npm/lodash@4.17.20"}]},
+    {"SPDXID": "SPDXRef-Package-npm-left-pad", "name": "left-pad", "versionInfo": "1.3.0", "licenseConcluded": "WTFPL",
+     "externalRefs": [{"referenceCategory": "PACKAGE-MANAGER", "referenceType": "purl", "referenceLocator": "pkg:npm/left-pad@1.3.0"}]}
+  ]
+}

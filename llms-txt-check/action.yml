@@ -1,0 +1,103 @@
+name: "llms.txt Check"
+description: "Validate that a site directory or URL serves an llms.txt that follows the convention (H1, blockquote summary, H2 link sections, resolvable links), or generate one from a docs directory. Reports in the job summary and as annotations."
+author: "Muhammad Basit Ali (@basitalisandhu)"
+branding:
+  icon: file-text
+  color: blue
+
+inputs:
+  mode:
+    description: "check or generate."
+    required: false
+    default: "check"
+  source:
+    description: "check: site directory (containing llms.txt), path to an llms.txt, or site URL such as https://example.com."
+    required: false
+    default: "."
+  check-links:
+    description: "check: send HEAD requests to remote links (at most 50) and warn on non-2xx/3xx answers. Relative links are always checked against the site directory."
+    required: false
+    default: "false"
+  docs-dir:
+    description: "generate: directory with Markdown files."
+    required: false
+    default: "docs"
+  output:
+    description: "generate: where to write the file."
+    required: false
+    default: "llms.txt"
+  site-name:
+    description: "generate: H1 text. Empty uses the repository name."
+    required: false
+    default: ""
+  site-url:
+    description: "generate: base URL for links, for example https://example.com. Empty writes root-relative links."
+    required: false
+    default: ""
+  summary:
+    description: "generate: blockquote summary under the H1."
+    required: false
+    default: ""
+  link-format:
+    description: "generate: md (keep .md), html (.html with README/index as index.html) or none (drop the extension)."
+    required: false
+    default: "md"
+  fail-on:
+    description: "error, warning or none."
+    required: false
+    default: "error"
+  timeout:
+    description: "Seconds to wait for each HTTP request."
+    required: false
+    default: "10"
+  python-version:
+    description: "Python version to set up with actions/setup-python. Empty uses the python3 already on the runner."
+    required: false
+    default: ""
+
+outputs:
+  status:
+    description: "pass or fail."
+    value: ${{ steps.check.outputs.status }}
+  error-count:
+    description: "Number of errors."
+    value: ${{ steps.check.outputs.error-count }}
+  warning-count:
+    description: "Number of warnings."
+    value: ${{ steps.check.outputs.warning-count }}
+  llms-txt-path:
+    description: "Path or URL of the llms.txt that was checked or written."
+    value: ${{ steps.check.outputs.llms-txt-path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      if: ${{ inputs.python-version != '' }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Check or generate llms.txt
+      id: check
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        MODE: ${{ inputs.mode }}
+        SOURCE: ${{ inputs.source }}
+        CHECK_LINKS: ${{ inputs.check-links }}
+        DOCS_DIR: ${{ inputs.docs-dir }}
+        OUTPUT: ${{ inputs.output }}
+        SITE_NAME: ${{ inputs.site-name }}
+        SITE_URL: ${{ inputs.site-url }}
+        SUMMARY_TEXT: ${{ inputs.summary }}
+        LINK_FORMAT: ${{ inputs.link-format }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        TIMEOUT: ${{ inputs.timeout }}
+      run: |
+        args=(--mode "$MODE" --source "$SOURCE" --docs-dir "$DOCS_DIR" --output "$OUTPUT" --link-format "$LINK_FORMAT" --fail-on "$FAIL_ON" --timeout "$TIMEOUT")
+        [ -n "$SITE_NAME" ] && args+=(--site-name "$SITE_NAME")
+        [ -n "$SITE_URL" ] && args+=(--site-url "$SITE_URL")
+        [ -n "$SUMMARY_TEXT" ] && args+=(--summary-text "$SUMMARY_TEXT")
+        [ "$CHECK_LINKS" = "true" ] && args+=(--check-links)
+        python3 "$ACTION_PATH/src/llms_txt_check.py" "${args[@]}"

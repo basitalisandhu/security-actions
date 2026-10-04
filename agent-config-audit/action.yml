@@ -1,0 +1,98 @@
+name: "Agent Config Audit"
+description: "Audit AI agent configuration (Claude Code settings and hooks, .mcp.json servers, Cursor rules, CLAUDE.md and AGENTS.md instructions) for risky permissions, secrets, unpinned servers and prompt-injection patterns. Writes SARIF and a job summary."
+author: "Muhammad Basit Ali (@basitalisandhu)"
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  path:
+    description: "Directory to audit, relative to the workspace."
+    required: false
+    default: "."
+  extra-files:
+    description: "Additional files to audit, one per line (for example a client configuration stored outside the usual locations)."
+    required: false
+    default: ""
+  fail-on:
+    description: "Lowest severity that fails the job: critical, high, medium, low, info or none. Findings below this level are still reported."
+    required: false
+    default: "high"
+  sarif-file:
+    description: "Where to write the SARIF 2.1.0 report."
+    required: false
+    default: "agent-config-audit.sarif"
+  upload-sarif:
+    description: "Upload the SARIF report to GitHub code scanning (requires permissions: security-events: write)."
+    required: false
+    default: "true"
+  category:
+    description: "Code scanning category for the upload, so several audits can coexist in one repository."
+    required: false
+    default: "agent-config-audit"
+  python-version:
+    description: "Python version to set up with actions/setup-python. Empty uses the python3 already on the runner."
+    required: false
+    default: ""
+
+outputs:
+  finding-count:
+    description: "Total number of findings at every severity."
+    value: ${{ steps.audit.outputs.finding-count }}
+  highest-severity:
+    description: "Highest severity found: critical, high, medium, low, info or none."
+    value: ${{ steps.audit.outputs.highest-severity }}
+  sarif-file:
+    description: "Path of the SARIF report."
+    value: ${{ steps.audit.outputs.sarif-file }}
+  gate:
+    description: "pass or fail, according to fail-on."
+    value: ${{ steps.audit.outputs.gate }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      if: ${{ inputs.python-version != '' }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Audit agent configuration
+      id: audit
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        AUDIT_PATH: ${{ inputs.path }}
+        EXTRA_FILES: ${{ inputs.extra-files }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+      run: |
+        args=()
+        while IFS= read -r line; do
+          [ -n "$line" ] && args+=(--extra "$line")
+        done <<< "$EXTRA_FILES"
+        set +e
+        python3 "$ACTION_PATH/src/action.py" --root "$AUDIT_PATH" --sarif "$SARIF_FILE" --fail-on "$FAIL_ON" "${args[@]}"
+        rc=$?
+        set -e
+        # 1 means the gate failed; the step reports that after the SARIF upload. Anything else is a real error.
+        if [ "$rc" -gt 1 ]; then exit "$rc"; fi
+
+    - name: Upload SARIF to code scanning
+      if: ${{ inputs.upload-sarif == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: ${{ inputs.category }}
+
+    - name: Fail on findings at or above the threshold
+      if: ${{ steps.audit.outputs.gate == 'fail' }}
+      shell: bash
+      env:
+        COUNT: ${{ steps.audit.outputs.finding-count }}
+        HIGHEST: ${{ steps.audit.outputs.highest-severity }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        echo "::error::agent-config-audit: $COUNT finding(s), highest severity $HIGHEST, threshold $FAIL_ON. See the job summary or the Security tab."
+        exit 1

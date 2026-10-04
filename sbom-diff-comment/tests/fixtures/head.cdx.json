@@ -1,0 +1,13 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 2,
+  "components": [
+    {"type": "library", "name": "lodash", "version": "4.17.21", "purl": "pkg:npm/lodash@4.17.21", "licenses": [{"license": {"id": "MIT"}}]},
+    {"type": "library", "group": "@scope", "name": "widget", "version": "2.0.0", "purl": "pkg:npm/%40scope/widget@2.0.0", "licenses": [{"license": {"id": "GPL-3.0-only"}}]},
+    {"type": "library", "name": "requests", "version": "2.31.0", "purl": "pkg:pypi/requests@2.31.0", "licenses": [{"license": {"id": "Apache-2.0"}}]},
+    {"type": "library", "name": "no-purl-lib", "version": "0.1.0", "licenses": [{"expression": "MIT OR Apache-2.0"}]},
+    {"type": "library", "name": "axios", "version": "1.7.0", "purl": "pkg:npm/axios@1.7.0", "licenses": [{"license": {"id": "MIT"}}],
+     "components": [{"type": "library", "name": "follow-redirects", "version": "1.15.6", "purl": "pkg:npm/follow-redirects@1.15.6"}]}
+  ]
+}
