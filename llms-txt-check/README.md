@@ -53,6 +53,7 @@ The generator groups files by their top-level subdirectory (root files go under 
 | `mode` | `check` | `check` or `generate`. |
 | `source` | `.` | check: site directory, path to an `llms.txt`, or site URL. |
 | `check-links` | `"false"` | check: HEAD-request remote links (at most 50). |
+| `sorted` | `"false"` | check: report sections and link entries not in the generator's order (LLMS-015 note). |
 | `docs-dir` | `docs` | generate: Markdown source directory. |
 | `output` | `llms.txt` | generate: output path. |
 | `site-name` | `""` | generate: H1 text; empty uses the repository name. |
@@ -94,6 +95,7 @@ The generator groups files by their top-level subdirectory (root files go under 
 | LLMS-011 | warning | Empty link target |
 | LLMS-012 | note | Duplicate link target |
 | LLMS-014 | note | No `llms-full.txt` next to the file |
+| LLMS-015 | note | Sections or link entries are not sorted in the generator's order (`--sorted` only) |
 
 ## Local use
 

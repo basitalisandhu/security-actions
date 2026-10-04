@@ -18,6 +18,10 @@ inputs:
     description: "check: send HEAD requests to remote links (at most 50) and warn on non-2xx/3xx answers. Relative links are always checked against the site directory."
     required: false
     default: "false"
+  sorted:
+    description: "check: report sections and link entries that are not in the generator's order (LLMS-015 note)."
+    required: false
+    default: "false"
   docs-dir:
     description: "generate: directory with Markdown files."
     required: false
@@ -86,6 +90,7 @@ runs:
         MODE: ${{ inputs.mode }}
         SOURCE: ${{ inputs.source }}
         CHECK_LINKS: ${{ inputs.check-links }}
+        SORTED: ${{ inputs.sorted }}
         DOCS_DIR: ${{ inputs.docs-dir }}
         OUTPUT: ${{ inputs.output }}
         SITE_NAME: ${{ inputs.site-name }}
@@ -100,4 +105,5 @@ runs:
         [ -n "$SITE_URL" ] && args+=(--site-url "$SITE_URL")
         [ -n "$SUMMARY_TEXT" ] && args+=(--summary-text "$SUMMARY_TEXT")
         [ "$CHECK_LINKS" = "true" ] && args+=(--check-links)
+        [ "$SORTED" = "true" ] && args+=(--sorted)
         python3 "$ACTION_PATH/src/llms_txt_check.py" "${args[@]}"
