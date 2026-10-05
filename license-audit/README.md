@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: basitalisandhu/security-actions/license-audit@v1
+      - uses: basitalisandhu/security-actions/license-audit@v0
         with:
           allowlist: |
             MIT
@@ -36,7 +36,7 @@ For `requirements.txt` the packages must be installed first so their metadata is
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - uses: basitalisandhu/security-actions/license-audit@v1
+      - uses: basitalisandhu/security-actions/license-audit@v0
         with:
           inputs: requirements.txt
 ```

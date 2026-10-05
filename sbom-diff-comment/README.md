@@ -25,7 +25,7 @@ jobs:
           git fetch origin "${{ github.base_ref }}" --depth 1
           git worktree add ../base "origin/${{ github.base_ref }}"
           (cd ../base && npm ci --ignore-scripts && npm sbom --sbom-format cyclonedx) > base.cdx.json
-      - uses: basitalisandhu/security-actions/sbom-diff-comment@v1
+      - uses: basitalisandhu/security-actions/sbom-diff-comment@v0
         with:
           base: base.cdx.json
           head: head.cdx.json

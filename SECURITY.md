@@ -18,11 +18,11 @@ You can expect an acknowledgement within 72 hours and a fix or a public statemen
 
 ## Supported versions
 
-The latest `v1.x.y` release (and therefore the `v1` tag) and the `main` branch receive fixes.
+The latest `v0.x.y` release (and therefore the `v0` tag) and the `main` branch receive fixes.
 
 ## Safe use of these actions
 
-- Pin to an immutable tag (`@v1.0.0`) or a commit SHA when you need reproducible runs; `@v1` follows the latest release.
+- Pin to an immutable tag (`@v0.1.0`) or a commit SHA when you need reproducible runs; `@v0` follows the latest release.
 - Grant only the permissions each action lists in its README. `security-events: write` is needed only while `upload-sarif` is `"true"`; `pull-requests: write` only for sbom-diff-comment.
 - The scripts make no network calls except the ones the action exists to make: indexnow-ping talks to the sitemap host and the IndexNow endpoint, sbom-diff-comment to the GitHub API, llms-txt-check to the site URL when one is given and to linked pages when `check-links` is on.
 - Scanner output is redacted, but the SARIF file and the job summary still name the file and line of each finding. Treat them as sensitive until the credential has been rotated.

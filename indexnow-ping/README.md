@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - uses: basitalisandhu/security-actions/indexnow-ping@v1
+      - uses: basitalisandhu/security-actions/indexnow-ping@v0
         continue-on-error: true   # a search engine outage should not turn the deploy red
         with:
           host: www.example.org
@@ -27,7 +27,7 @@ jobs:
 Explicit URLs, for example from a changed-files step:
 
 ```yaml
-      - uses: basitalisandhu/security-actions/indexnow-ping@v1
+      - uses: basitalisandhu/security-actions/indexnow-ping@v0
         continue-on-error: true
         with:
           host: www.example.org

@@ -8,7 +8,7 @@ Thank you for helping teams run these checks. This document is the layout standa
 - Precision over coverage. A check that is noisy on real repositories gets narrowed or removed. If a pattern cannot be made precise, give it a lower severity and say so in the README.
 - Secrets never reach the output. Any value a scanner matches is redacted (first four and last two characters) in SARIF, summaries, JSON and logs. Tests assert this.
 - Inputs only grow. Add inputs with defaults; never remove or rename one inside a major version. See the versioning policy in the README.
-- Every action is self-contained. `uses: basitalisandhu/security-actions/<name>@v1` must work with nothing but that directory, so no shared runtime code between actions (the shared `scripts/check_sarif.py` is used by tests and CI only).
+- Every action is self-contained. `uses: basitalisandhu/security-actions/<name>@v0` must work with nothing but that directory, so no shared runtime code between actions (the shared `scripts/check_sarif.py` is used by tests and CI only).
 
 ## Layout
 
