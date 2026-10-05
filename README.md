@@ -3,7 +3,7 @@
 GitHub Actions for AI agent and supply chain security checks. Six small composite actions, each in its own directory with a dependency-free Python or Node script and a test suite, that teams drop into CI with one `uses:` line. The agent-side actions find risky agent configuration and leaked credentials in prompt files; the supply-chain actions diff SBOMs, audit licences, keep `llms.txt` valid and tell search engines about changed pages.
 
 ```yaml
-- uses: basitalisandhu/security-actions/agent-config-audit@v1
+- uses: basitalisandhu/security-actions/agent-config-audit@v0
 ```
 
 ## Actions
@@ -37,9 +37,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: basitalisandhu/security-actions/agent-config-audit@v1
-      - uses: basitalisandhu/security-actions/prompt-secrets-scan@v1
-      - uses: basitalisandhu/security-actions/license-audit@v1
+      - uses: basitalisandhu/security-actions/agent-config-audit@v0
+      - uses: basitalisandhu/security-actions/prompt-secrets-scan@v0
+      - uses: basitalisandhu/security-actions/license-audit@v0
         with:
           fail-on: unknown
 ```
@@ -48,9 +48,9 @@ Set `upload-sarif: "false"` on any of them to skip code scanning (and drop `secu
 
 ## Versioning
 
-- `v1` is a moving tag that always points at the latest `v1.x.y` release. `uses: ...@v1` gets fixes and new inputs without breaking changes.
-- Each release also has an immutable tag (`v1.0.0`). Pin to it, or to a commit SHA, when you need reproducible runs.
-- A breaking change (an input removed or its default changed in a way that alters results, an output renamed, a different exit code) moves to `v2` with a new moving tag. The old major keeps receiving security fixes for six months after the next major ships.
+- `v0` is a moving tag that always points at the latest `v0.x.y` release. `uses: ...@v0` gets fixes and new inputs without breaking changes.
+- Each release also has an immutable tag (`v0.1.0`). Pin to it, or to a commit SHA, when you need reproducible runs.
+- A breaking change (an input removed or its default changed in a way that alters results, an output renamed, a different exit code) moves to the next major with a new moving tag. The old major keeps receiving security fixes for six months after the next major ships.
 - Inputs are only added with defaults, so an existing workflow keeps working after an update.
 
 The release workflow (`.github/workflows/release.yml`) runs the test suites, creates the GitHub release from `CHANGELOG.md` and moves the major tag.

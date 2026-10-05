@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: npm run build          # produces _site/llms.txt
-      - uses: basitalisandhu/security-actions/llms-txt-check@v1
+      - uses: basitalisandhu/security-actions/llms-txt-check@v0
         with:
           source: _site
           fail-on: warning
@@ -24,7 +24,7 @@ jobs:
 Check a deployed site (no checkout needed):
 
 ```yaml
-      - uses: basitalisandhu/security-actions/llms-txt-check@v1
+      - uses: basitalisandhu/security-actions/llms-txt-check@v0
         with:
           source: https://docs.example.com
           check-links: "true"
@@ -33,7 +33,7 @@ Check a deployed site (no checkout needed):
 Generate one from `docs/` and commit it (or publish it with the site):
 
 ```yaml
-      - uses: basitalisandhu/security-actions/llms-txt-check@v1
+      - uses: basitalisandhu/security-actions/llms-txt-check@v0
         with:
           mode: generate
           docs-dir: docs
