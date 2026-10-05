@@ -12,7 +12,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Removed the umbrella branding; this project stands alone and links its sibling repositories directly.
 
-## [1.0.0] - 2026-10-03
+## [0.1.0] - 2026-10-03
 
 ### Added
 
