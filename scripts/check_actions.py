@@ -50,7 +50,7 @@ def check_uses(ref: str, where: str, problems: list[str], uses: set[tuple[str, s
     name, tag = ref.rsplit("@", 1)
     if name not in ALLOWED_USES:
         problems.append(f"{where}: uses {name} is not in the allowed list ({', '.join(sorted(ALLOWED_USES))})")
-    elif tag not in ALLOWED_USES[name]:
+    elif tag not in ALLOWED_USES[name] and not re.fullmatch(r"[0-9a-f]{40}", tag):  # a full commit SHA is a stricter pin
         problems.append(f"{where}: uses {ref} should be one of {', '.join(sorted(ALLOWED_USES[name]))}")
     uses.add((name, tag))
 
