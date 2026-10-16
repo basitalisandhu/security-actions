@@ -1,7 +1,15 @@
 version: 2
 updates:
   - package-ecosystem: github-actions
-    directory: /
+    # the workflows, and the actions each composite action calls for its users
+    directories:
+      - /
+      - /agent-config-audit
+      - /indexnow-ping
+      - /license-audit
+      - /llms-txt-check
+      - /prompt-secrets-scan
+      - /sbom-diff-comment
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
