@@ -12,6 +12,8 @@ This repository contains GitHub composite actions and the scripts they run insid
 
 ## Reporting
 
+Report a vulnerability privately: <https://github.com/basitalisandhu/security-actions/security/advisories/new>
+
 Please report vulnerabilities privately through GitHub's private vulnerability reporting on this repository (Security tab, "Report a vulnerability"). If that is not available, open an issue titled "Security contact request" without details and a maintainer will reply with a private channel.
 
 You can expect an acknowledgement within 72 hours and a fix or a public statement within 14 days for confirmed issues. Credit is given in the release notes unless you prefer otherwise.
