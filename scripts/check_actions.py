@@ -24,10 +24,11 @@ except ImportError:  # pragma: no cover
     sys.exit(2)
 
 ROOT = Path(__file__).resolve().parents[1]
+# Older majors stay allowed while Dependabot moves workflows and actions across one pull request at a time.
 ALLOWED_USES = {
-    "actions/checkout": {"v4"},
-    "actions/setup-python": {"v5"},
-    "actions/setup-node": {"v4"},
+    "actions/checkout": {"v4", "v7"},
+    "actions/setup-python": {"v5", "v7"},
+    "actions/setup-node": {"v4", "v7"},
     "github/codeql-action/upload-sarif": {"v3"},
 }
 INPUT_REF_RE = re.compile(r"inputs\.([A-Za-z0-9_-]+)")
