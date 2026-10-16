@@ -16,7 +16,7 @@ jobs:
   licences:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: basitalisandhu/security-actions/license-audit@v0
         with:
           allowlist: |

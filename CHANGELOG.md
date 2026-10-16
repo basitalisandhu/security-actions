@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-10-16
+
 ### Added
 
 - `llms-txt-check`: added `--sorted` flag and `LLMS-015` rule (note) to report sections and link entries not in the generator's deterministic order (#9, thanks @AK-Lmn).
@@ -11,6 +15,9 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Changed
 
 - Removed the umbrella branding; this project stands alone and links its sibling repositories directly.
+- The composite actions now run `actions/setup-python@v7` (agent-config-audit, prompt-secrets-scan, llms-txt-check, license-audit) and `actions/setup-node@v7` (indexnow-ping, sbom-diff-comment) instead of v5 and v4. GitHub-hosted runners need no change; a self-hosted runner must be recent enough to run Node 24 actions (#19 to #24).
+- CI and release workflows use `actions/checkout@v7`, `actions/setup-python@v7` and `actions/setup-node@v7`; `scripts/check_actions.py` allows the previous major alongside the new one while Dependabot moves files across, and Dependabot now watches every action folder (#13 to #16).
+- The README documents the three ways to pin (`@v0`, `@v0.2.0`, a commit SHA) and that `v0` moves on each release; examples use `actions/checkout@v7`.
 
 ## [0.1.0] - 2026-10-03
 

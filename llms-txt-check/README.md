@@ -13,7 +13,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: npm run build          # produces _site/llms.txt
       - uses: basitalisandhu/security-actions/llms-txt-check@v0
         with:
