@@ -36,7 +36,7 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: basitalisandhu/security-actions/agent-config-audit@v0
       - uses: basitalisandhu/security-actions/prompt-secrets-scan@v0
       - uses: basitalisandhu/security-actions/license-audit@v0
@@ -48,8 +48,16 @@ Set `upload-sarif: "false"` on any of them to skip code scanning (and drop `secu
 
 ## Versioning
 
+Consumers can pin any of three ways:
+
+| Pin | Example | What you get |
+|---|---|---|
+| Major tag | `uses: basitalisandhu/security-actions/agent-config-audit@v0` | Every 0.x.y release as it ships. `v0` **moves**: each release re-points it at the new release commit. |
+| Release tag | `uses: basitalisandhu/security-actions/agent-config-audit@v0.2.0` | Exactly that release. Release tags are never moved. |
+| Commit SHA | `uses: basitalisandhu/security-actions/agent-config-audit@<40-character SHA> # v0.2.0` | Exactly that commit, even if a tag were changed. Dependabot and Renovate update the SHA and the comment. |
+
 - `v0` is a moving tag that always points at the latest `v0.x.y` release. `uses: ...@v0` gets fixes and new inputs without breaking changes.
-- Each release also has an immutable tag (`v0.1.0`). Pin to it, or to a commit SHA, when you need reproducible runs.
+- Each release also has an immutable tag (`v0.2.0`). Pin to it, or to a commit SHA, when you need reproducible runs. `git ls-remote --tags https://github.com/basitalisandhu/security-actions` lists each tag and its commit.
 - A breaking change (an input removed or its default changed in a way that alters results, an output renamed, a different exit code) moves to the next major with a new moving tag. The old major keeps receiving security fixes for six months after the next major ships.
 - Inputs are only added with defaults, so an existing workflow keeps working after an update.
 

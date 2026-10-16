@@ -27,7 +27,7 @@ Thank you for helping teams run these checks. This document is the layout standa
 - The run step reads inputs from `env:` variables, never by interpolating `${{ inputs.x }}` into the script text.
 - Scripts exit 0 on success, 1 when a gate fails, 2 on usage errors. For SARIF-producing actions the run step turns exit 1 into a `gate=fail` output so the upload step still runs, and a final step fails the job.
 - Set-up steps for Python or Node are conditional on a `python-version` or `node-version` input and skipped by default.
-- External actions are limited to the list in `scripts/check_actions.py` (`actions/checkout@v4`, `actions/setup-python@v5`, `actions/setup-node@v4`, `github/codeql-action/upload-sarif@v3`). Adding one needs a reason in the pull request.
+- External actions are limited to the list in `scripts/check_actions.py` (`actions/checkout`, `actions/setup-python` and `actions/setup-node` at v7, with the previous major allowed while Dependabot moves files across, and `github/codeql-action/upload-sarif@v3`). Adding one needs a reason in the pull request.
 
 ## Tests
 

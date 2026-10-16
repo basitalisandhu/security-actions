@@ -17,7 +17,7 @@ jobs:
   sbom:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Produce head.cdx.json for the pull request and base.cdx.json for the base branch with the SBOM tool
       # you already use (for example cdxgen, syft or npm sbom), or download the base SBOM from the latest release.
       - run: npm sbom --sbom-format cyclonedx > head.cdx.json
