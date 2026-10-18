@@ -29,7 +29,7 @@ ALLOWED_USES = {
     "actions/checkout": {"v4", "v7"},
     "actions/setup-python": {"v5", "v7"},
     "actions/setup-node": {"v4", "v7"},
-    "github/codeql-action/upload-sarif": {"v3"},
+    "github/codeql-action/upload-sarif": {"v3", "v4"},
 }
 INPUT_REF_RE = re.compile(r"inputs\.([A-Za-z0-9_-]+)")
 STEP_REF_RE = re.compile(r"steps\.([A-Za-z0-9_-]+)\.outputs")
