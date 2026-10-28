@@ -32,6 +32,46 @@ import sys
 from importlib import metadata as importlib_metadata
 from pathlib import Path
 
+
+# Python 3.14 guards the C JSON decoder by stack space, not the recursion limit, so very
+# deep input no longer raises RecursionError there. Check nesting first so it fails the
+# same way on every version. JSONTooDeepError is a RecursionError for existing handlers.
+MAX_JSON_DEPTH = 200
+_JSON_STRINGS = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"', re.S)
+_JSON_NOT_BRACKETS = re.compile(r"[^\[\]{}]+")
+
+
+class JSONTooDeepError(RecursionError):
+    """JSON text nests arrays/objects deeper than MAX_JSON_DEPTH."""
+
+
+def json_depth(text: str | bytes, limit: int = MAX_JSON_DEPTH) -> int:
+    """Bracket nesting depth of ``text`` outside strings, stopping once past ``limit``."""
+    if isinstance(text, (bytes, bytearray)):
+        text = bytes(text).decode("utf-8", "replace")
+    depth = peak = 0
+    for ch in _JSON_NOT_BRACKETS.sub("", _JSON_STRINGS.sub("", text)):
+        if ch in "[{":
+            depth += 1
+            if depth > peak:
+                peak = depth
+                if peak > limit:
+                    break
+        elif depth:
+            depth -= 1
+    return peak
+
+
+def json_loads(text: str | bytes, limit: int = MAX_JSON_DEPTH):
+    """``json.loads`` that raises ``JSONTooDeepError`` for input nested deeper than ``limit``."""
+    if json_depth(text, limit) > limit:
+        raise JSONTooDeepError(f"JSON is nested more than {limit} levels deep")
+    try:
+        return json.loads(text)
+    except RecursionError as exc:
+        raise JSONTooDeepError(f"JSON is nested too deeply to read: {exc}") from None
+
+
 TOOL_NAME = "license-audit"
 TOOL_URI = "https://github.com/basitalisandhu/security-actions/tree/main/license-audit"
 VERSION = "1.0.0"
@@ -265,7 +305,7 @@ def _str(value) -> str:
 
 def _load_json_object(text: str, path: Path) -> dict:
     try:
-        data = json.loads(text)
+        data = json_loads(text)
     except RecursionError:
         raise ValueError(f"{path}: JSON is nested too deeply to read") from None
     except json.JSONDecodeError as exc:
@@ -312,7 +352,7 @@ def read_package_lock(path: Path, root: Path, include_dev: bool = True) -> list[
             pj = base_dir / install_path / "package.json"
             if pj.is_file():
                 try:
-                    licenses = license_from_package_json(json.loads(pj.read_text(encoding="utf-8")))
+                    licenses = license_from_package_json(json_loads(pj.read_text(encoding="utf-8")))
                 except (OSError, ValueError, RecursionError):  # ValueError covers JSONDecodeError and bad UTF-8
                     licenses = []
         if dev and not include_dev:
