@@ -37,6 +37,46 @@ import re
 import sys
 from pathlib import Path
 
+
+# Python 3.14 guards the C JSON decoder by stack space, not the recursion limit, so very
+# deep input no longer raises RecursionError there. Check nesting first so it fails the
+# same way on every version. JSONTooDeepError is a RecursionError for existing handlers.
+MAX_JSON_DEPTH = 200
+_JSON_STRINGS = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"', re.S)
+_JSON_NOT_BRACKETS = re.compile(r"[^\[\]{}]+")
+
+
+class JSONTooDeepError(RecursionError):
+    """JSON text nests arrays/objects deeper than MAX_JSON_DEPTH."""
+
+
+def json_depth(text: str | bytes, limit: int = MAX_JSON_DEPTH) -> int:
+    """Bracket nesting depth of ``text`` outside strings, stopping once past ``limit``."""
+    if isinstance(text, (bytes, bytearray)):
+        text = bytes(text).decode("utf-8", "replace")
+    depth = peak = 0
+    for ch in _JSON_NOT_BRACKETS.sub("", _JSON_STRINGS.sub("", text)):
+        if ch in "[{":
+            depth += 1
+            if depth > peak:
+                peak = depth
+                if peak > limit:
+                    break
+        elif depth:
+            depth -= 1
+    return peak
+
+
+def json_loads(text: str | bytes, limit: int = MAX_JSON_DEPTH):
+    """``json.loads`` that raises ``JSONTooDeepError`` for input nested deeper than ``limit``."""
+    if json_depth(text, limit) > limit:
+        raise JSONTooDeepError(f"JSON is nested more than {limit} levels deep")
+    try:
+        return json.loads(text)
+    except RecursionError as exc:
+        raise JSONTooDeepError(f"JSON is nested too deeply to read: {exc}") from None
+
+
 TOOL_NAME = "prompt-secrets-scan"
 TOOL_URI = "https://github.com/basitalisandhu/security-actions/tree/main/prompt-secrets-scan"
 VERSION = "1.0.0"
@@ -218,7 +258,7 @@ def _join(value) -> str:
 def scan_notebook(raw: str, file: str, allow: Allowlist) -> list[Finding]:
     """Scan cell sources and text outputs of a Jupyter notebook. Lines point into the raw .ipynb file."""
     try:
-        nb = json.loads(raw)
+        nb = json_loads(raw)
     except (json.JSONDecodeError, RecursionError):
         return scan_text(raw, file, allow)
     cells = nb.get("cells") if isinstance(nb, dict) else None

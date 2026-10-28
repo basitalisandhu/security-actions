@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 Nothing yet.
 
+## [0.3.1] - 2026-10-29
+
+### Fixed
+
+- `agent-config-audit`, `license-audit` and `prompt-secrets-scan`: deeply nested JSON (settings and MCP files, lockfiles, SBOMs, `package.json`, notebooks) is reported the same way on every supported Python (`CFG-001`, or one `::error::` line naming the file). Python 3.14 no longer raises `RecursionError` from `json.loads` at the old depth, so JSON is now checked for nesting first (limit 200 levels) instead of relying on it.
+- CI runs the Python suites on 3.10, 3.12, 3.13 and 3.14.
+
 ## [0.3.0] - 2026-10-28
 
 ### Added
