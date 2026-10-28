@@ -119,8 +119,8 @@ def resolve_relative(site_dir: Path, url: str) -> bool:
 
 
 def head_ok(url: str, timeout: int = DEFAULT_TIMEOUT) -> bool:
-    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": f"{TOOL_NAME}/{VERSION}"})
     try:
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": f"{TOOL_NAME}/{VERSION}"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return 200 <= resp.status < 400
     except urllib.error.HTTPError as exc:
@@ -198,8 +198,8 @@ def check_text(text: str, site_dir: Path | None = None, base_url: str = "", chec
 
 
 def fetch_text(url: str, timeout: int = DEFAULT_TIMEOUT) -> str | None:
-    req = urllib.request.Request(url, headers={"User-Agent": f"{TOOL_NAME}/{VERSION}", "Accept": "text/plain, text/markdown, */*"})
     try:
+        req = urllib.request.Request(url, headers={"User-Agent": f"{TOOL_NAME}/{VERSION}", "Accept": "text/plain, text/markdown, */*"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             if resp.status != 200:
                 return None
@@ -323,7 +323,17 @@ def append_file(env_name: str, text: str, override: str | None = None) -> None:
             fh.write(text)
 
 
-def main(argv: list[str] | None = None) -> int:
+def positive_int(raw: str) -> int:
+    try:
+        value = int(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a whole number of seconds, got {raw!r}") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be 1 or more, got {value}")
+    return value
+
+
+def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--mode", choices=["check", "generate"], default="check")
     ap.add_argument("--source", default=".", help="check: site directory, path to llms.txt, or site URL")
@@ -335,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--link-format", choices=["md", "html", "none"], default="md", help="generate: keep .md, use .html, or drop the extension")
     ap.add_argument("--check-links", action="store_true", help="check remote links with HEAD requests (bounded to 50)")
     ap.add_argument("--sorted", action="store_true", help="check: report sections and link entries not in the generator's deterministic order (LLMS-015)")
-    ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
+    ap.add_argument("--timeout", type=positive_int, default=DEFAULT_TIMEOUT, help="seconds per network request (1 or more)")
     ap.add_argument("--fail-on", choices=["error", "warning", "none"], default="error")
     ap.add_argument("--json", dest="json_out", default="")
     ap.add_argument("--summary", default="", help="write the Markdown summary here instead of $GITHUB_STEP_SUMMARY")
@@ -381,6 +391,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::{cmd}{loc},title={p.rule}::{p.message}" if loc else f"::{cmd} title={p.rule}::{p.message}")
     print(f"{TOOL_NAME}: {status} ({counts['error']} error(s), {counts['warning']} warning(s), {counts['note']} note(s)) for {where}")
     return 1 if failed else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the action. Bad input ends with a one-line ::error:: and exit code 2, never a traceback."""
+    try:
+        return _main(argv)
+    except OSError as exc:  # an output path that cannot be written, a file that vanished mid-run
+        target = f" {exc.filename}" if exc.filename else ""
+        print(f"::error::{TOOL_NAME}: cannot read or write{target}: {exc.strerror or exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - last resort so a CI log shows one clear line
+        print(f"::error::{TOOL_NAME}: internal error ({type(exc).__name__}: {exc}). Please report it at https://github.com/basitalisandhu/security-actions/issues", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

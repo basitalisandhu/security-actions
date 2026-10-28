@@ -41,7 +41,8 @@ def load(path: Path):
 
 def check_uses(ref: str, where: str, problems: list[str], uses: set[tuple[str, str]]) -> None:
     if ref.startswith("./"):
-        if not (ROOT / ref[2:] / "action.yml").is_file():
+        local = ref[2:].removeprefix("vendor/security-actions/")  # the quickstart job's checkout of this repository
+        if not (ROOT / local / "action.yml").is_file():
             problems.append(f"{where}: local action {ref} has no action.yml")
         return
     if "@" not in ref:

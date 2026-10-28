@@ -27,6 +27,7 @@ Standard library only. Read-only. No network.
 from __future__ import annotations
 
 import argparse
+import bisect
 import fnmatch
 import hashlib
 import json
@@ -205,32 +206,46 @@ def scan_text(text: str, file: str, allow: Allowlist, context: str = "") -> list
     return out
 
 
+def _join(value) -> str:
+    """Notebook text fields are a string or a list of strings; anything else carries no text."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(v for v in value if isinstance(v, str))
+    return ""
+
+
 def scan_notebook(raw: str, file: str, allow: Allowlist) -> list[Finding]:
     """Scan cell sources and text outputs of a Jupyter notebook. Lines point into the raw .ipynb file."""
     try:
         nb = json.loads(raw)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, RecursionError):
         return scan_text(raw, file, allow)
+    cells = nb.get("cells") if isinstance(nb, dict) else None
+    if not isinstance(cells, list):  # valid JSON but not a notebook: scan it as plain text
+        return scan_text(raw, file, allow)
+    newlines = [m.start() for m in re.finditer("\n", raw)]
     out: list[Finding] = []
-    for i, cell in enumerate(nb.get("cells") or []):
+    for i, cell in enumerate(cells):
         if not isinstance(cell, dict):
             continue
         bodies: list[tuple[str, str]] = []
         src = cell.get("source")
-        bodies.append(("".join(src) if isinstance(src, list) else str(src or ""), f"cell {i} source"))
-        for o in cell.get("outputs") or []:
+        bodies.append((_join(src), f"cell {i} source"))
+        outputs = cell.get("outputs")
+        for o in outputs if isinstance(outputs, list) else []:
             if not isinstance(o, dict):
                 continue
             if isinstance(o.get("text"), (list, str)):
-                bodies.append(("".join(o["text"]) if isinstance(o["text"], list) else o["text"], f"cell {i} output"))
-            data = o.get("data") or {}
-            for mime, val in data.items():
+                bodies.append((_join(o["text"]), f"cell {i} output"))
+            data = o.get("data")
+            for mime, val in (data.items() if isinstance(data, dict) else ()):
                 if mime.startswith("text/") and isinstance(val, (list, str)):
-                    bodies.append(("".join(val) if isinstance(val, list) else val, f"cell {i} output ({mime})"))
+                    bodies.append((_join(val), f"cell {i} output ({mime})"))
         for body, where in bodies:
             for f in scan_text(body, file, allow, context=where):
                 idx = raw.find(f.value if not f.value.startswith("-----BEGIN") else f.value[:20])
-                f.line = raw.count("\n", 0, idx) + 1 if idx >= 0 else 1
+                f.line = bisect.bisect_left(newlines, idx) + 1 if idx >= 0 else 1
                 out.append(f)
     return out
 
@@ -349,7 +364,7 @@ def split_list(raw: str) -> list[str]:
     return [x.strip() for x in re.split(r"[\n,]", raw or "") if x.strip()]
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default=".", help="directory to scan")
     ap.add_argument("--paths", default="", help="globs to scan, comma or newline separated (default: prompt, notebook and instruction files)")
@@ -369,7 +384,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.allowlist and not allow_path.is_file():
         print(f"::error::{TOOL_NAME}: allowlist {allow_path} not found", file=sys.stderr)
         return 2
-    allow = Allowlist(allow_path.read_text(encoding="utf-8") if allow_path.is_file() else "")
+    allow = Allowlist(allow_path.read_text(encoding="utf-8", errors="replace") if allow_path.is_file() else "")
     patterns = split_list(args.paths) or DEFAULT_PATHS
     findings, scanned, notes = scan(root, patterns, split_list(args.exclude), allow)
 
@@ -388,6 +403,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::{cmd} file={f.file},line={f.line},title={f.rule_id}::{f.name}: {redact(f.value)}")
     print(f"{TOOL_NAME}: {len(findings)} finding(s) in {len(scanned)} file(s), gate {gate} (fail-on {args.fail_on})")
     return 1 if gate == "fail" else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the action. Bad input ends with a one-line ::error:: and exit code 2, never a traceback."""
+    try:
+        return _main(argv)
+    except OSError as exc:  # an output path that cannot be written, a file that vanished mid-run
+        target = f" {exc.filename}" if exc.filename else ""
+        print(f"::error::{TOOL_NAME}: cannot read or write{target}: {exc.strerror or exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - last resort so a CI log shows one clear line
+        print(f"::error::{TOOL_NAME}: internal error ({type(exc).__name__}: {exc}). Please report it at https://github.com/basitalisandhu/security-actions/issues", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

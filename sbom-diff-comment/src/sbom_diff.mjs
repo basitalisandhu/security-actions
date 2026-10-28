@@ -15,9 +15,16 @@ import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
 const MARKER_PREFIX = "<!-- sbom-diff-comment";
 const MAX_COMMENT_CHARS = 65000;
 const MAX_ROWS = 50;
+export const COLLAPSE_AFTER = 10; // sections with more rows than this are folded into <details>
 const USER_AGENT = "sbom-diff-comment/1.0.0 (+https://github.com/basitalisandhu/security-actions)";
 
+// SBOMs come from many generators; treat a field of the wrong JSON type as absent instead of crashing.
+const str = (v) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "");
+const arr = (v) => (Array.isArray(v) ? v : []);
+const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : null);
+
 export function detectFormat(doc) {
+  if (!obj(doc)) throw new Error(`expected a JSON object at the top level, found ${Array.isArray(doc) ? "an array" : doc === null ? "null" : typeof doc}`);
   if (doc && doc.bomFormat === "CycloneDX") return "cyclonedx";
   if (doc && (typeof doc.spdxVersion === "string" || doc.SPDXID === "SPDXRef-DOCUMENT")) return "spdx";
   throw new Error("not a CycloneDX JSON (bomFormat) or SPDX JSON (spdxVersion) document");
@@ -32,9 +39,10 @@ function stripPurlVersion(purl) {
 
 function cycloneLicenses(c) {
   const out = [];
-  for (const l of c.licenses || []) {
-    if (l.expression) out.push(l.expression);
-    else if (l.license) out.push(l.license.id || l.license.name || "");
+  for (const l of arr(c.licenses)) {
+    if (!obj(l)) continue;
+    if (str(l.expression)) out.push(str(l.expression));
+    else if (obj(l.license)) out.push(str(l.license.id) || str(l.license.name));
   }
   return out.filter(Boolean);
 }
@@ -52,23 +60,26 @@ export function normalize(doc) {
   const items = [];
   if (format === "cyclonedx") {
     const walk = (components) => {
-      for (const c of components || []) {
-        if (!c || !c.name) continue;
-        const purl = typeof c.purl === "string" ? c.purl : "";
-        const key = purl ? stripPurlVersion(purl) : `${c.type || "library"}/${c.group ? `${c.group}/` : ""}${c.name}`;
-        items.push({ key, name: c.group ? `${c.group}/${c.name}` : c.name, version: c.version || "", licenses: cycloneLicenses(c).sort(), purl });
+      for (const c of arr(components)) {
+        if (!obj(c) || !str(c.name)) continue;
+        const purl = str(c.purl);
+        const group = str(c.group);
+        const key = purl ? stripPurlVersion(purl) : `${str(c.type) || "library"}/${group ? `${group}/` : ""}${str(c.name)}`;
+        items.push({ key, name: group ? `${group}/${str(c.name)}` : str(c.name), version: str(c.version), licenses: cycloneLicenses(c).sort(), purl });
         if (Array.isArray(c.components)) walk(c.components);
       }
     };
     walk(doc.components);
   } else {
-    for (const p of doc.packages || []) {
-      if (!p || !p.name) continue;
-      if (p.SPDXID && doc.documentDescribes && doc.documentDescribes.includes(p.SPDXID) && (doc.packages || []).length > 1) continue; // the root package
-      const ref = (p.externalRefs || []).find((r) => r.referenceType === "purl" && typeof r.referenceLocator === "string");
+    const packages = arr(doc.packages);
+    const described = new Set(arr(doc.documentDescribes)); // a Set: includes() per package was quadratic
+    for (const p of packages) {
+      if (!obj(p) || !str(p.name)) continue;
+      if (p.SPDXID && described.has(p.SPDXID) && packages.length > 1) continue; // the root package
+      const ref = arr(p.externalRefs).find((r) => obj(r) && r.referenceType === "purl" && typeof r.referenceLocator === "string");
       const purl = ref ? ref.referenceLocator : "";
-      const key = purl ? stripPurlVersion(purl) : `spdx/${p.name}`;
-      items.push({ key, name: p.name, version: p.versionInfo || "", licenses: spdxLicenses(p).sort(), purl });
+      const key = purl ? stripPurlVersion(purl) : `spdx/${str(p.name)}`;
+      items.push({ key, name: str(p.name), version: str(p.versionInfo), licenses: spdxLicenses(p).sort(), purl });
     }
   }
   const byKey = new Map();
@@ -117,6 +128,12 @@ function table(headers, rows, render) {
   return out;
 }
 
+function section(title, headers, rows, render) {
+  const body = table(headers, rows, render);
+  if (rows.length <= COLLAPSE_AFTER) return [`### ${title}`, "", ...body];
+  return [`### ${title}`, "", `<details><summary>${title} (${rows.length})</summary>`, "", ...body, "</details>", ""];
+}
+
 export function renderMarkdown(d, { title = "SBOM diff", marker = "default", baseLabel = "base", headLabel = "head" } = {}) {
   const lines = [
     `${MARKER_PREFIX}:${marker} -->`,
@@ -131,11 +148,11 @@ export function renderMarkdown(d, { title = "SBOM diff", marker = "default", bas
     return lines.join("\n");
   }
   if (d.licenseChanges.length) {
-    lines.push("### Licence changes", "", ...table(["Component", "Was", "Now"], d.licenseChanges, (r) => [`${esc(r.name)} ${esc(r.version)}`, lic(r.from), lic(r.to)]));
+    lines.push(...section("Licence changes", ["Component", "Was", "Now"], d.licenseChanges, (r) => [`${esc(r.name)} ${esc(r.version)}`, lic(r.from), lic(r.to)]));
   }
-  lines.push("### Added", "", ...table(["Component", "Version", "Licences"], d.added, (r) => [esc(r.name), esc(r.version), lic(r.licenses)]));
-  lines.push("### Removed", "", ...table(["Component", "Version", "Licences"], d.removed, (r) => [esc(r.name), esc(r.version), lic(r.licenses)]));
-  lines.push("### Version changes", "", ...table(["Component", "From", "To"], d.changed, (r) => [esc(r.name), esc(r.from), esc(r.to)]));
+  lines.push(...section("Added", ["Component", "Version", "Licences"], d.added, (r) => [esc(r.name), esc(r.version), lic(r.licenses)]));
+  lines.push(...section("Removed", ["Component", "Version", "Licences"], d.removed, (r) => [esc(r.name), esc(r.version), lic(r.licenses)]));
+  lines.push(...section("Version changes", ["Component", "From", "To"], d.changed, (r) => [esc(r.name), esc(r.from), esc(r.to)]));
   return lines.join("\n");
 }
 
@@ -203,6 +220,26 @@ export function prNumberFromEvent(eventPath) {
   }
 }
 
+export function readSbom(path, label) {
+  let text;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (err) {
+    throw new Error(`cannot read ${label} SBOM ${path}: ${err.code === "ENOENT" ? "no such file" : err.code === "EISDIR" ? "is a directory" : err.message}`);
+  }
+  let doc;
+  try {
+    doc = JSON.parse(text);
+  } catch (err) {
+    throw new Error(`${label} SBOM ${path} is not valid JSON (${err.message})`);
+  }
+  try {
+    return normalize(doc);
+  } catch (err) {
+    throw new Error(`${label} SBOM ${path}: ${err.message}`);
+  }
+}
+
 function setOutputs(values, env) {
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, Object.entries(values).map(([k, v]) => `${k}=${v}\n`).join(""));
 }
@@ -212,10 +249,14 @@ export async function run({ inputs, env = process.env, fetchImpl = fetch, log = 
     log("::error::sbom-diff-comment: base and head are required");
     return 2;
   }
+  if (!Number.isFinite(inputs.timeout) || inputs.timeout <= 0) {
+    log(`::error::sbom-diff-comment: timeout must be a number of seconds greater than 0, got ${inputs.timeout}`);
+    return 2;
+  }
   let d;
   try {
-    const base = normalize(JSON.parse(readFileSync(inputs.base, "utf8")));
-    const head = normalize(JSON.parse(readFileSync(inputs.head, "utf8")));
+    const base = readSbom(inputs.base, "base");
+    const head = readSbom(inputs.head, "head");
     d = diff(base, head);
     log(`sbom-diff-comment: ${base.format} base (${d.baseCount}) vs ${head.format} head (${d.headCount}): +${d.added.length} -${d.removed.length} ~${d.changed.length}, ${d.licenseChanges.length} licence change(s)`);
   } catch (err) {

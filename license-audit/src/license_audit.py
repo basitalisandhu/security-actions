@@ -221,12 +221,63 @@ class Package:
 
 
 # ------------------------------------------------------------------------------- readers
+class LineIndex:
+    """Line numbers for quoted JSON strings in one document, built in a single pass.
+
+    Looking each package up with text.find() and text.count() made reading a lockfile or SBOM
+    quadratic in its size; this maps every quoted string (and every "key": "value" pair) to the
+    line of its first occurrence once, then answers each lookup from a dict.
+    """
+
+    _STRING = r'"(?:[^"\\\n]|\\.)*"'
+    _PAIR_RE = re.compile(f"({_STRING})(?:(\\s*:\\s*)({_STRING}))?")
+
+    def __init__(self, text: str):
+        self.text = text
+        self.first: dict[str, int] = {}
+        line, pos = 1, 0
+        for m in self._PAIR_RE.finditer(text):
+            line += text.count("\n", pos, m.start())
+            pos = m.start()
+            for token in (m.group(0), m.group(1), m.group(3)):
+                if token:
+                    self.first.setdefault(token, line)
+
+    def line_of(self, needle: str) -> int:
+        hit = self.first.get(needle)
+        if hit is not None:
+            return hit
+        idx = self.text.find(needle)
+        return self.text.count("\n", 0, idx) + 1 if idx >= 0 else 1
+
+
 def line_of(text: str, needle: str) -> int:
     idx = text.find(needle)
     return text.count("\n", 0, idx) + 1 if idx >= 0 else 1
 
 
+def _str(value) -> str:
+    """Text of a scalar JSON value; lockfiles and SBOMs from other tools sometimes carry numbers or nulls."""
+    if isinstance(value, str):
+        return value
+    return "" if value is None or isinstance(value, (dict, list)) else str(value)
+
+
+def _load_json_object(text: str, path: Path) -> dict:
+    try:
+        data = json.loads(text)
+    except RecursionError:
+        raise ValueError(f"{path}: JSON is nested too deeply to read") from None
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path}: not valid JSON ({exc.msg} at line {exc.lineno} column {exc.colno})") from None
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: expected a JSON object at the top level, found {type(data).__name__}")
+    return data
+
+
 def license_from_package_json(data: dict) -> list[str]:
+    if not isinstance(data, dict):
+        return []
     lic = data.get("license")
     if isinstance(lic, str):
         return [lic]
@@ -247,7 +298,8 @@ def license_from_package_json(data: dict) -> list[str]:
 
 def read_package_lock(path: Path, root: Path, include_dev: bool = True) -> list[Package]:
     text = path.read_text(encoding="utf-8")
-    data = json.loads(text)
+    data = _load_json_object(text, path)
+    index = LineIndex(text)
     rel = path.relative_to(root).as_posix() if path.is_relative_to(root) else path.as_posix()
     pkgs: list[Package] = []
     seen: set[tuple[str, str]] = set()
@@ -261,34 +313,35 @@ def read_package_lock(path: Path, root: Path, include_dev: bool = True) -> list[
             if pj.is_file():
                 try:
                     licenses = license_from_package_json(json.loads(pj.read_text(encoding="utf-8")))
-                except (OSError, json.JSONDecodeError):
+                except (OSError, ValueError, RecursionError):  # ValueError covers JSONDecodeError and bad UTF-8
                     licenses = []
         if dev and not include_dev:
             return
         seen.add((name, version))
-        pkgs.append(Package(name, version, licenses, rel, line_of(text, f'"{key}"'), "npm", dev))
+        pkgs.append(Package(name, version, licenses, rel, index.line_of(f'"{key}"'), "npm", dev))
 
     packages = data.get("packages")
     if isinstance(packages, dict):
         for key, entry in packages.items():
             if not key or not isinstance(entry, dict) or "node_modules/" not in key:
                 continue
-            name = entry.get("name") or key.rsplit("node_modules/", 1)[1]
+            name = _str(entry.get("name")) or key.rsplit("node_modules/", 1)[1]
             lic = entry.get("license")
             licenses = [lic] if isinstance(lic, str) else license_from_package_json(entry)
-            add(name, str(entry.get("version", "")), licenses, key, bool(entry.get("dev")), key)
+            add(name, _str(entry.get("version", "")), licenses, key, bool(entry.get("dev")), key)
         return pkgs
 
     def walk(deps: dict, prefix: str):
-        for name, entry in (deps or {}).items():
+        for name, entry in deps.items():
             if not isinstance(entry, dict):
                 continue
             install = f"{prefix}node_modules/{name}"
-            add(name, str(entry.get("version", "")), [], name, bool(entry.get("dev")), install)
+            add(name, _str(entry.get("version", "")), [], name, bool(entry.get("dev")), install)
             if isinstance(entry.get("dependencies"), dict):
                 walk(entry["dependencies"], install + "/")
 
-    walk(data.get("dependencies") or {}, "")
+    deps = data.get("dependencies")
+    walk(deps if isinstance(deps, dict) else {}, "")
     return pkgs
 
 
@@ -368,26 +421,28 @@ def read_requirements(path: Path, root: Path, search_path: list[str] | None = No
 
 def read_cyclonedx(path: Path, root: Path, data: dict) -> list[Package]:
     text = path.read_text(encoding="utf-8")
+    index = LineIndex(text)
     rel = path.relative_to(root).as_posix() if path.is_relative_to(root) else path.as_posix()
     pkgs: list[Package] = []
 
     def walk(components):
-        for c in components or []:
-            if not isinstance(c, dict) or not c.get("name"):
+        for c in components if isinstance(components, list) else []:
+            if not isinstance(c, dict) or not _str(c.get("name")):
                 continue
             lics = []
-            for l in c.get("licenses") or []:
+            for l in c.get("licenses") if isinstance(c.get("licenses"), list) else []:
                 if not isinstance(l, dict):
                     continue
                 if l.get("expression"):
-                    lics.append(l["expression"])
+                    lics.append(_str(l["expression"]))
                 elif isinstance(l.get("license"), dict):
-                    lics.append(l["license"].get("id") or l["license"].get("name") or "")
-            name = f"{c['group']}/{c['name']}" if c.get("group") else c["name"]
-            purl = c.get("purl") or ""
+                    lics.append(_str(l["license"].get("id")) or _str(l["license"].get("name")))
+            cname = _str(c["name"])
+            name = f"{_str(c['group'])}/{cname}" if _str(c.get("group")) else cname
+            purl = _str(c.get("purl"))
             eco = purl.split(":", 1)[1].split("/", 1)[0] if purl.startswith("pkg:") else "sbom"
-            needle = f'"purl": "{purl}"' if purl else f'"name": "{c["name"]}"'
-            pkgs.append(Package(name, str(c.get("version", "")), [l for l in lics if l], rel, line_of(text, needle), eco))
+            needle = f'"purl": "{purl}"' if purl else f'"name": "{cname}"'
+            pkgs.append(Package(name, _str(c.get("version", "")), [l for l in lics if l], rel, index.line_of(needle), eco))
             walk(c.get("components"))
 
     walk(data.get("components"))
@@ -396,21 +451,26 @@ def read_cyclonedx(path: Path, root: Path, data: dict) -> list[Package]:
 
 def read_spdx(path: Path, root: Path, data: dict) -> list[Package]:
     text = path.read_text(encoding="utf-8")
+    index = LineIndex(text)
     rel = path.relative_to(root).as_posix() if path.is_relative_to(root) else path.as_posix()
     pkgs: list[Package] = []
-    described = set(data.get("documentDescribes") or [])
-    packages = data.get("packages") or []
+    described_raw = data.get("documentDescribes")
+    described = {d for d in described_raw if isinstance(d, str)} if isinstance(described_raw, list) else set()
+    packages = data.get("packages") if isinstance(data.get("packages"), list) else []
     for p in packages:
-        if not isinstance(p, dict) or not p.get("name"):
+        if not isinstance(p, dict) or not _str(p.get("name")):
             continue
         if p.get("SPDXID") in described and len(packages) > 1:
             continue
         lics = [v for v in (p.get("licenseConcluded"), p.get("licenseDeclared")) if isinstance(v, str) and v.strip().upper() not in {"", "NOASSERTION", "NONE"}]
         lics = list(dict.fromkeys(lics))
-        ref = next((r for r in p.get("externalRefs") or [] if isinstance(r, dict) and r.get("referenceType") == "purl"), None)
-        purl = ref.get("referenceLocator", "") if ref else ""
+        refs = p.get("externalRefs") if isinstance(p.get("externalRefs"), list) else []
+        ref = next((r for r in refs if isinstance(r, dict) and r.get("referenceType") == "purl"), None)
+        purl = _str(ref.get("referenceLocator", "")) if ref else ""
         eco = purl.split(":", 1)[1].split("/", 1)[0] if purl.startswith("pkg:") else "sbom"
-        pkgs.append(Package(p["name"], str(p.get("versionInfo", "")), lics[:1] if lics and lics[0] == lics[-1] else lics, rel, line_of(text, f'"{p.get("SPDXID", p["name"])}"'), eco))
+        name = _str(p["name"])
+        pkgs.append(Package(name, _str(p.get("versionInfo", "")), lics[:1] if lics and lics[0] == lics[-1] else lics, rel,
+                            index.line_of(f'"{_str(p.get("SPDXID")) or name}"'), eco))
     return pkgs
 
 
@@ -420,7 +480,7 @@ def read_any(path: Path, root: Path, include_dev: bool, search_path: list[str] |
         return read_package_lock(path, root, include_dev)
     if name.endswith(".txt") or name.endswith(".in"):
         return read_requirements(path, root, search_path)
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = _load_json_object(path.read_text(encoding="utf-8"), path)
     if isinstance(data, dict) and data.get("bomFormat") == "CycloneDX":
         return read_cyclonedx(path, root, data)
     if isinstance(data, dict) and (data.get("spdxVersion") or data.get("SPDXID")):
@@ -503,7 +563,7 @@ def split_list(raw: str) -> list[str]:
     return [x.strip() for x in re.split(r"[\n,]", raw or "") if x.strip()]
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default=".", help="project directory (paths in reports are relative to it)")
     ap.add_argument("--input", action="append", default=[], help="file to read (repeatable); default: auto-detect in --root")
@@ -537,7 +597,10 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         try:
             found = read_any(path, root, include_dev=not args.no_dev, search_path=search_path)
-        except (ValueError, json.JSONDecodeError, OSError) as exc:
+        except UnicodeDecodeError:
+            print(f"::error::{TOOL_NAME}: {path}: not UTF-8 text", file=sys.stderr)
+            return 2
+        except (ValueError, OSError) as exc:
             print(f"::error::{TOOL_NAME}: {exc}", file=sys.stderr)
             return 2
         sources.append(path.relative_to(root).as_posix() if path.is_relative_to(root) else str(path))
@@ -566,6 +629,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::{cmd} file={p.source},line={p.line},title={RULE_FOR_STATUS[p.status]}::{p.name} {p.version}: {p.expression or 'no licence declared'} ({p.status})")
     print(f"{TOOL_NAME}: {len(packages)} package(s), {disallowed} disallowed or denied, {unknown} unknown, gate {gate} (fail-on {args.fail_on})")
     return 1 if gate == "fail" else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the action. Bad input ends with a one-line ::error:: and exit code 2, never a traceback."""
+    try:
+        return _main(argv)
+    except OSError as exc:  # an output path that cannot be written, a file that vanished mid-run
+        target = f" {exc.filename}" if exc.filename else ""
+        print(f"::error::{TOOL_NAME}: cannot read or write{target}: {exc.strerror or exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - last resort so a CI log shows one clear line
+        print(f"::error::{TOOL_NAME}: internal error ({type(exc).__name__}: {exc}). Please report it at https://github.com/basitalisandhu/security-actions/issues", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

@@ -46,10 +46,18 @@ function decodeXml(s) {
 
 export function parseSitemap(xml) {
   // Returns { kind: "index" | "urlset", entries: [{ loc, lastmod }] }
+  // A linear scan: a lazy regex such as /<url[\s>][\s\S]*?<\/url>/g rescans to the end of the
+  // document for every unclosed <url>, which made a truncated sitemap quadratic.
   const isIndex = /<sitemapindex[\s>]/i.test(xml);
-  const blockRe = isIndex ? /<sitemap[\s>][\s\S]*?<\/sitemap>/gi : /<url[\s>][\s\S]*?<\/url>/gi;
+  const openRe = isIndex ? /<sitemap[\s>]/gi : /<url[\s>]/gi;
+  const close = isIndex ? "</sitemap>" : "</url>";
+  const lower = xml.toLowerCase();
   const entries = [];
-  for (const block of xml.match(blockRe) || []) {
+  for (let m = openRe.exec(xml); m; m = openRe.exec(xml)) {
+    const end = lower.indexOf(close, m.index);
+    if (end < 0) break; // the rest of the document has no closing tag
+    const block = xml.slice(m.index, end + close.length);
+    openRe.lastIndex = end + close.length;
     const loc = /<loc>\s*([\s\S]*?)\s*<\/loc>/i.exec(block);
     if (!loc) continue;
     const lastmod = /<lastmod>\s*([\s\S]*?)\s*<\/lastmod>/i.exec(block);
@@ -200,21 +208,37 @@ export async function run({ inputs, env = process.env, fetchImpl = fetch, log = 
     log(`::error::indexnow-ping: ${err.message}`);
     return 2;
   }
+  if (!Number.isFinite(inputs.timeout) || inputs.timeout <= 0) {
+    log(`::error::indexnow-ping: timeout must be a number of seconds greater than 0, got ${inputs.timeout}`);
+    return 2;
+  }
+  if (!Number.isFinite(inputs.maxUrls) || inputs.maxUrls < 0) {
+    log(`::error::indexnow-ping: max-urls must be a whole number, got ${inputs.maxUrls}`);
+    return 2;
+  }
   const timeoutMs = Math.max(1, inputs.timeout) * 1000;
-  const entries = [];
-  if (inputs.urls) entries.push(...inputs.urls.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).map((loc) => ({ loc, lastmod: null })));
-  if (inputs.urlsFile) entries.push(...readFileSync(inputs.urlsFile, "utf8").split(/\r?\n/).map((s) => s.trim()).filter((s) => s && !s.startsWith("#")).map((loc) => ({ loc, lastmod: null })));
+  // Explicit URLs are always submitted; the lastmod filter applies to sitemap entries only.
+  const explicit = [];
+  const fromSitemap = [];
+  if (inputs.urls) explicit.push(...inputs.urls.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).map((loc) => ({ loc, lastmod: null })));
+  if (inputs.urlsFile) {
+    let text;
+    try {
+      text = readFileSync(inputs.urlsFile, "utf8");
+    } catch (err) {
+      log(`::error::indexnow-ping: cannot read urls-file ${inputs.urlsFile}: ${err.code === "ENOENT" ? "no such file" : err.message}`);
+      return 2;
+    }
+    explicit.push(...text.split(/\r?\n/).map((s) => s.trim()).filter((s) => s && !s.startsWith("#")).map((loc) => ({ loc, lastmod: null })));
+  }
   if (inputs.sitemapUrl) {
     try {
-      entries.push(...await fetchSitemapUrls(inputs.sitemapUrl, { fetchImpl, timeoutMs, log: (m) => log(`::warning::indexnow-ping: ${m}`) }));
+      fromSitemap.push(...await fetchSitemapUrls(inputs.sitemapUrl, { fetchImpl, timeoutMs, log: (m) => log(`::warning::indexnow-ping: ${m}`) }));
     } catch (err) {
       log(`::error::indexnow-ping: could not read the sitemap: ${err.message}`);
       return 1;
     }
   }
-  // Explicit URLs are always submitted; the lastmod filter applies to sitemap entries only.
-  const explicit = entries.filter((e) => e.lastmod === null && (inputs.urls || inputs.urlsFile));
-  const fromSitemap = entries.filter((e) => !explicit.includes(e));
   const a = selectUrls(explicit, { host: inputs.host });
   const b = selectUrls(fromSitemap, { host: inputs.host, since });
   const urls = [...new Set([...a.selected, ...b.selected])].slice(0, Math.max(0, inputs.maxUrls));

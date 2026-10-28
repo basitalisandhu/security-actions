@@ -46,6 +46,8 @@ jobs:
 
 Set `upload-sarif: "false"` on any of them to skip code scanning (and drop `security-events: write`); the job summary and annotations still appear.
 
+CI runs this quick start as written on every push and same-repository pull request: the `quickstart` job in `.github/workflows/ci.yml` creates a fresh project with `scripts/make_quickstart_project.py`, runs the three steps above against the copy of the actions under test, and checks that every gate passes. `scripts/check_quickstart.py` fails the build if the job and this README drift apart.
+
 ## Versioning
 
 Consumers can pin any of three ways:
@@ -62,6 +64,24 @@ Consumers can pin any of three ways:
 - Inputs are only added with defaults, so an existing workflow keeps working after an update.
 
 The release workflow (`.github/workflows/release.yml`) runs the test suites, creates the GitHub release from `CHANGELOG.md` and moves the major tag.
+
+## Troubleshooting
+
+Every action ends a run in one of three ways: exit 0 (gate passed), exit 1 (the gate failed on findings, or a comment or ping was rejected) or exit 2 with a single `::error::<action>: ...` line that says what was wrong with the input. If a log shows a Python or Node traceback, or a line containing `internal error`, that is a bug: please [open an issue](https://github.com/basitalisandhu/security-actions/issues) with the line and, if you can, the file that caused it.
+
+| Symptom | Cause and fix |
+|---|---|
+| `Resource not accessible by integration` in the "Upload SARIF" step | The job lacks `security-events: write`, or it runs for a pull request from a fork, where the token is read-only. Add the permission, or set `upload-sarif: "false"` on fork pull requests; the summary and annotations still appear. |
+| `license-audit: no package-lock.json, requirements.txt or SBOM found` | The action looks in `path` (default the workspace root). Set `path` to the project directory or list the files in `inputs`. |
+| `license-audit: <file>: not valid JSON (...)`, `expected a JSON object at the top level` or `not UTF-8 text` | The lockfile or SBOM is truncated, is a different format, or was written with another encoding. Regenerate it; the message gives the line and column of the first JSON error. |
+| `license-audit` reports many packages as `unknown` for `requirements.txt` | Licences come from installed metadata. Install the requirements in the job before the step (`pip install -r requirements.txt`), or point `site-packages` at the environment that has them. |
+| `agent-config-audit` reports `CFG-001` | A JSON configuration file does not parse (or is nested too deeply to read). Claude Code and other hosts ignore such a file, so its deny rules and hooks are not applied; fix the syntax. |
+| A scan note says `skipped <file>: larger than ... bytes` | agent-config-audit reads files up to 2 MB and prompt-secrets-scan up to 5 MB, to keep runs fast. Large generated files are rarely instruction files; exclude them, or split them. |
+| `cannot read or write <path>` | An output path such as `sarif-file`, `markdown-file` or `output` points into a directory that does not exist. Create the directory first or use a path in the workspace. |
+| `sbom-diff-comment` posts no comment | Outside a pull request it skips the comment by design. Inside one it needs `pull-requests: write`; fork pull requests get a read-only token, so run it from `workflow_run` with `pr-number`, or set `comment: "false"`. |
+| `indexnow-ping` answers 403 | The key file is not reachable at `https://<host>/<key>.txt` (or at `key-location`). Deploy the key file before the ping step. |
+| `timeout must be a number of seconds greater than 0` | The `timeout` input is empty after expression substitution, or not a number. Use a whole number such as `30`. |
+| An action fails to start on a self-hosted runner | The actions set up Node 24 through `actions/setup-node@v7` and `actions/setup-python@v7`; the runner must be recent enough to run Node 24 actions. GitHub-hosted runners need no change. |
 
 ## Permissions
 
