@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format follows [Kee
 
 Nothing yet.
 
+## [0.3.0] - 2026-10-28
+
+### Added
+
+- `sbom-diff-comment`: a section with more than 10 rows is folded into a `<details>` block whose summary shows the section and its row count (for example `Added (123)`); the 50-row cap still applies (#6).
+- README: a Troubleshooting section, and a `quickstart` CI job that runs the README quick start as written against a fresh project (`scripts/make_quickstart_project.py`), kept in step with the README by `scripts/check_quickstart.py`.
+- Property tests with seeded random input for every reader (settings and MCP files, notebooks, allowlists, lockfiles, SBOMs, `llms.txt`, sitemaps) and scaling tests that compare a run on ten times the input.
+
+### Fixed
+
+- Every Python action now ends bad input with one `::error::` line and exit code 2 instead of a traceback: an output path in a missing directory, a lockfile or SBOM that is a JSON array, not UTF-8 or nested too deeply, and an unexpected error (which now asks to be reported).
+- `agent-config-audit`: settings, hooks and MCP entries whose fields have the wrong JSON type (for example `"permissions": true` or `"env": [..]`) are skipped instead of crashing the scan; deeply nested JSON is reported as `CFG-001`.
+- `license-audit`: names, versions and licences that are numbers, nulls or objects in a lockfile or SBOM no longer crash the run.
+- `prompt-secrets-scan`: notebooks whose `cells`, `outputs` or `data` have the wrong type are scanned (as text when they are not notebooks) instead of crashing; an allowlist with bytes that are not UTF-8 still loads.
+- `llms-txt-check`: a malformed URL as `source` or as a link no longer crashes the check; `--timeout` must be 1 or more.
+- `indexnow-ping`: sitemap entries without `<lastmod>` were treated as explicit URLs whenever `urls` or `urls-file` was also set, so they skipped `changed-since`; a missing `urls-file` and a `timeout` or `max-urls` that is not a number are now clear errors.
+- `sbom-diff-comment`: fields of the wrong JSON type in an SBOM are treated as absent, and a missing, unreadable or invalid SBOM names the file; a `timeout` that is not a number is a clear error.
+
+### Changed
+
+- The `agent-config-audit` scanner here now differs from the copy in agent-security-skills by the fixes above.
+
+### Performance
+
+- `license-audit` finds each package's line number from an index built in one pass; reading lockfiles and SBOMs was quadratic in their size (20,000 packages took several seconds per file).
+- `agent-config-audit` and `prompt-secrets-scan` (notebooks) look up line numbers by binary search instead of counting newlines from the start of the file for every match.
+- `indexnow-ping` parses sitemaps in one linear pass; a truncated sitemap with many unclosed `<url>` tags was quadratic. Splitting explicit and sitemap URLs no longer compares every entry against every other.
+- `sbom-diff-comment` checks SPDX `documentDescribes` with a set instead of a list scan per package.
+
 ## [0.2.0] - 2026-10-16
 
 ### Added

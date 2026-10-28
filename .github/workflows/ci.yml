@@ -25,6 +25,9 @@ jobs:
       - name: Check every action.yml and workflow
         run: python3 scripts/check_actions.py
 
+      - name: Check the CI quick-start job matches the README
+        run: python3 scripts/check_quickstart.py
+
   python-tests:
     name: Python tests (${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -63,6 +66,47 @@ jobs:
         run: |
           node --test indexnow-ping/tests/*.test.mjs
           node --test sbom-diff-comment/tests/*.test.mjs
+
+  quickstart:
+    name: README quick start on a fresh project
+    # Runs the README quick start as written (scripts/check_quickstart.py keeps the steps in sync).
+    # The default SARIF upload needs security-events: write, which fork and Dependabot pull requests do not get.
+    if: github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    needs: [validate]
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out this repository as the copy under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: vendor/security-actions
+
+      - name: Create a fresh project in the workspace (stands in for the README's checkout step)
+        run: python3 vendor/security-actions/scripts/make_quickstart_project.py .
+
+      - id: agent
+        uses: ./vendor/security-actions/agent-config-audit
+      - id: secrets
+        uses: ./vendor/security-actions/prompt-secrets-scan
+      - id: license
+        uses: ./vendor/security-actions/license-audit
+        with:
+          fail-on: unknown
+
+      - name: Check every gate passed and each SARIF report was written
+        env:
+          AGENT_GATE: ${{ steps.agent.outputs.gate }}
+          SECRETS_GATE: ${{ steps.secrets.outputs.gate }}
+          LICENSE_GATE: ${{ steps.license.outputs.gate }}
+          LICENSE_PACKAGES: ${{ steps.license.outputs.package-count }}
+        run: |
+          test "$AGENT_GATE" = pass
+          test "$SECRETS_GATE" = pass
+          test "$LICENSE_GATE" = pass
+          test "$LICENSE_PACKAGES" = 2
+          python3 vendor/security-actions/scripts/check_sarif.py agent-config-audit.sarif prompt-secrets-scan.sarif license-audit.sarif
 
   self-test:
     name: Run each action on its fixtures

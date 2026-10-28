@@ -11,6 +11,7 @@ test-node:
 
 check:
 	python3 scripts/check_actions.py
+	python3 scripts/check_quickstart.py
 
 # Run each action's script on its fixtures the way the CI self-test does, without the composite wrapper.
 selftest:

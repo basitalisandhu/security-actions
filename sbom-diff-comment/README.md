@@ -34,6 +34,8 @@ jobs:
 
 To keep separate comments for several ecosystems, run the action once per pair with a different `marker`.
 
+Each section (licence changes, added, removed, version changes) lists at most 50 rows with an "and N more" row after them. A section with more than 10 rows is folded into a `<details>` block whose summary shows the section name and its row count, for example `Added (123)`, so a pull request that bumps many transitive dependencies still gives a short comment. The job summary and the `markdown-file` output use the same layout.
+
 ## Inputs
 
 | Input | Default | Description |

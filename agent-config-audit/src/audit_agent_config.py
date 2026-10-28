@@ -22,7 +22,9 @@ Standard library only. Read-only. No network.
 from __future__ import annotations
 
 import argparse
+import bisect
 import datetime as dt
+import functools
 import json
 import math
 import os
@@ -117,6 +119,29 @@ NETWORK_TOOL_RE = re.compile(r"(?i)\b(curl|wget|nc|ncat|netcat|socat|telnet|ssh|
 PIPE_TO_SHELL_RE = re.compile(r"(?i)(curl|wget)\b[^|\n]*\|\s*(sudo\s+)?(sh|bash|zsh|python3?|node|perl)\b")
 
 
+def _dict(value) -> dict:
+    """Return value when it is a JSON object, else an empty dict (configs are hand-written and often malformed)."""
+    return value if isinstance(value, dict) else {}
+
+
+def _list(value) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _str(value) -> str:
+    return value if isinstance(value, str) else ""
+
+
+@functools.lru_cache(maxsize=16)
+def _newline_offsets(text: str) -> list[int]:
+    return [m.start() for m in re.finditer("\n", text)]
+
+
+def line_at(text: str, offset: int) -> int:
+    """1-based line number of a character offset. Same result as text.count("\\n", 0, offset) + 1, in O(log n)."""
+    return bisect.bisect_left(_newline_offsets(text), offset) + 1
+
+
 @dataclass
 class Finding:
     id: str
@@ -141,13 +166,18 @@ class Auditor:
         self.scanned: list[str] = []
         self.errors: list[str] = []
         self._seen = set()
+        self._rel: dict[Path, str] = {}
 
     # ------------------------------------------------------------------ helpers
     def rel(self, path: Path) -> str:
-        try:
-            return str(path.resolve().relative_to(self.root))
-        except ValueError:
-            return str(path)
+        cached = self._rel.get(path)
+        if cached is None:
+            try:
+                cached = str(path.resolve().relative_to(self.root))
+            except ValueError:
+                cached = str(path)
+            self._rel[path] = cached
+        return cached
 
     def add(self, fid: str, severity: str, category: str, title: str, path: Path, line: int | None, evidence: str, recommendation: str) -> None:
         f = Finding(fid, severity, category, title, self.rel(path), line, redact(evidence)[:300], recommendation)
@@ -158,14 +188,14 @@ class Auditor:
 
     @staticmethod
     def line_of(text: str, needle: str) -> int | None:
-        if not needle:
+        if not needle or not isinstance(needle, str):
             return None
         idx = text.find(needle)
         if idx < 0:
             idx = text.find(needle.split("\n")[0][:40])
         if idx < 0:
             return None
-        return text.count("\n", 0, idx) + 1
+        return line_at(text, idx)
 
     def read(self, path: Path) -> str | None:
         try:
@@ -257,15 +287,16 @@ class Auditor:
                         continue
                 elif PLACEHOLDER_RE.search(value) or (len(set(value)) < 8 and "PRIVATE KEY" not in value):
                     continue
-                line = text.count("\n", 0, m.start()) + 1
+                line = line_at(text, m.start())
                 self.add("SEC-001", sev, "secret", f"{title} found in agent configuration", path, line, m.group(0),
                          "Move the value to an environment variable or a secret store, reference it as ${VAR}, rotate it now, and purge it from history.")
 
     def scan_json(self, path: Path, text: str) -> None:
         try:
             data = json.loads(text)
-        except json.JSONDecodeError as exc:
-            self.add("CFG-001", "low", "config", "JSON file does not parse", path, exc.lineno, str(exc)[:120],
+        except (json.JSONDecodeError, RecursionError) as exc:
+            self.add("CFG-001", "low", "config", "JSON file does not parse", path, getattr(exc, "lineno", None),
+                     str(exc)[:120] if isinstance(exc, json.JSONDecodeError) else "nested too deeply to parse",
                      "Fix the syntax; a config that fails to parse is silently ignored by most hosts, so its protections (deny rules, hooks) are not applied.")
             return
         if not isinstance(data, dict):
@@ -297,8 +328,8 @@ class Auditor:
 
     # settings.json ------------------------------------------------------------
     def scan_settings(self, path: Path, text: str, data: dict) -> None:
-        perms = data.get("permissions") or {}
-        mode = perms.get("defaultMode") or data.get("defaultMode")
+        perms = _dict(data.get("permissions"))
+        mode = _str(perms.get("defaultMode") or data.get("defaultMode"))
         if mode == "bypassPermissions":
             self.add("PERM-003", "critical", "permissions", "defaultMode is bypassPermissions", path, self.line_of(text, "bypassPermissions"),
                      '"defaultMode": "bypassPermissions"', "Use default or acceptEdits, and allowlist specific commands instead. Bypass mode removes every prompt, including for destructive commands.")
@@ -314,16 +345,16 @@ class Auditor:
         if data.get("disableAllHooks") is True:
             self.add("PERM-008", "medium", "permissions", "All hooks are disabled", path, self.line_of(text, "disableAllHooks"), '"disableAllHooks": true',
                      "Re-enable hooks; guard hooks such as secret-exposure blocking do not run while this is set.")
-        for rule in perms.get("allow") or []:
+        for rule in _list(perms.get("allow")):
             if not isinstance(rule, str):
                 continue
             self.scan_allow_rule(path, text, rule)
-        for d in perms.get("additionalDirectories") or []:
+        for d in _list(perms.get("additionalDirectories")):
             if isinstance(d, str) and (d.rstrip("/") or "/") in {"/", "~", "$HOME", os.path.expanduser("~"), "/home", "/Users", "C:\\", "C:"}:
                 self.add("PERM-010", "medium", "permissions", "additionalDirectories grants the whole home or root directory", path, self.line_of(text, d), d,
                          "Grant the specific project directories you need.")
-        allow = [r for r in perms.get("allow") or [] if isinstance(r, str)]
-        deny = perms.get("deny") or []
+        allow = [r for r in _list(perms.get("allow")) if isinstance(r, str)]
+        deny = _list(perms.get("deny"))
         if any(r.split("(")[0] in {"Bash", "Write", "Edit", "MultiEdit"} and ("(" not in r or r.endswith("(*)")) for r in allow) and not deny:
             self.add("PERM-011", "low", "permissions", "Broad allow rules with no deny rules", path, None, "permissions.deny is empty",
                      "Add deny rules for the commands and paths that must never run (for example Bash(rm -rf *), Read(./.env), Bash(curl *)).")
@@ -370,19 +401,19 @@ class Auditor:
             for matcher in matchers:
                 if not isinstance(matcher, dict):
                     continue
-                for h in matcher.get("hooks") or []:
+                for h in _list(matcher.get("hooks")):
                     if not isinstance(h, dict):
                         continue
                     self.scan_hook(path, text, event, h, plugin_root)
 
     def scan_hook(self, path: Path, text: str, event: str, h: dict, plugin_root: Path | None) -> None:
         htype = h.get("type", "command")
-        command = h.get("command") or ""
-        args = [a for a in (h.get("args") or []) if isinstance(a, str)]
+        command = _str(h.get("command"))
+        args = [a for a in _list(h.get("args")) if isinstance(a, str)]
         full = " ".join([command] + args)
-        line = self.line_of(text, command or h.get("url") or "")
+        line = self.line_of(text, command or _str(h.get("url")))
         if htype == "http":
-            url = h.get("url") or ""
+            url = _str(h.get("url"))
             host = re.sub(r"^[a-z]+://", "", url).split("/")[0].split(":")[0].lower()
             if host and host not in {"localhost", "127.0.0.1", "::1", "[::1]"} and not host.endswith(".localhost"):
                 self.add("HOOK-002", "high", "hooks", f"{event} hook posts tool data to a remote endpoint", path, line, url,
@@ -442,14 +473,14 @@ class Auditor:
                      PIPE_TO_SHELL_RE.search(text).group(0), "Vendor the script instead.")
         elif NETWORK_TOOL_RE.search(text) and not re.search(r"(?i)localhost|127\.0\.0\.1", text):
             m = NETWORK_TOOL_RE.search(text)
-            self.add("HOOK-002", "medium", "hooks", "Hook script can reach the network", path, text.count("\n", 0, m.start()) + 1, m.group(0),
+            self.add("HOOK-002", "medium", "hooks", "Hook script can reach the network", path, line_at(text, m.start()), m.group(0),
                      "Confirm what the script sends and where; hook input contains commands, paths and prompts.")
 
     # MCP ------------------------------------------------------------------------
     def scan_mcp(self, path: Path, text: str, servers: dict) -> None:
         for name, cfg in servers.items():
-            url = cfg.get("url") or ""
-            stype = cfg.get("type") or ("http" if url else "stdio")
+            url = _str(cfg.get("url"))
+            stype = _str(cfg.get("type")) or ("http" if url else "stdio")
             line = self.line_of(text, f'"{name}"')
             if url:
                 host = re.sub(r"^[a-z]+://", "", url).split("/")[0].split("@")[-1]
@@ -463,14 +494,14 @@ class Auditor:
                              "Use a DNS name with a valid certificate so the server identity can be verified and pinned.")
                 if stype == "sse":
                     self.add("MCP-006", "low", "mcp", f"MCP server {name} uses the deprecated SSE transport", path, line, '"type": "sse"', "Switch to type http (streamable HTTP).")
-            for hname, hval in (cfg.get("headers") or {}).items():
+            for hname, hval in _dict(cfg.get("headers")).items():
                 if isinstance(hval, str):
                     self.literal_credential(path, line, name, f"headers.{hname}", hval)
-            for ename, eval_ in (cfg.get("env") or {}).items():
+            for ename, eval_ in _dict(cfg.get("env")).items():
                 if isinstance(eval_, str):
                     self.literal_credential(path, line, name, f"env.{ename}", eval_)
-            command = cfg.get("command") or ""
-            args = [a for a in (cfg.get("args") or []) if isinstance(a, str)]
+            command = _str(cfg.get("command"))
+            args = [a for a in _list(cfg.get("args")) if isinstance(a, str)]
             self.pinning(path, line, name, command, args)
             joined = " ".join([command] + args)
             for flag in DANGEROUS_FLAGS:
@@ -540,10 +571,10 @@ class Auditor:
     # TOML (codex) ---------------------------------------------------------------
     def scan_toml(self, path: Path, text: str) -> None:
         for m in re.finditer(r"(?im)^\s*(approval_policy|sandbox_mode|sandbox)\s*=\s*\"?(never|danger-full-access|full-access|yolo)\"?", text):
-            self.add("PERM-003", "high", "permissions", f"{m.group(1)} set to {m.group(2)}", path, text.count("\n", 0, m.start()) + 1, m.group(0).strip(),
+            self.add("PERM-003", "high", "permissions", f"{m.group(1)} set to {m.group(2)}", path, line_at(text, m.start()), m.group(0).strip(),
                      "Use an approval policy that prompts for unsafe commands and keep the sandbox on.")
         for m in re.finditer(r"(?im)^\s*(url|command)\s*=\s*\"(http://[^\"]+)\"", text):
-            self.add("MCP-001", "high", "mcp", "MCP server configured over plain HTTP", path, text.count("\n", 0, m.start()) + 1, m.group(2), "Use https://.")
+            self.add("MCP-001", "high", "mcp", "MCP server configured over plain HTTP", path, line_at(text, m.start()), m.group(2), "Use https://.")
 
     # instruction files ----------------------------------------------------------
     def scan_instructions(self, path: Path, text: str) -> None:
@@ -551,29 +582,29 @@ class Auditor:
             for m in pattern.finditer(text):
                 if negatable and NEGATION_RE.search(text[max(0, m.start() - 40): m.start()]):
                     continue
-                line = text.count("\n", 0, m.start()) + 1
+                line = line_at(text, m.start())
                 self.add(fid, sev, "injection", title, path, line, m.group(0), rec)
         for m in ZERO_WIDTH_RE.finditer(text):
-            self.add("INJ-005", "high", "injection", "Invisible (zero-width) character in instruction file", path, text.count("\n", 0, m.start()) + 1,
+            self.add("INJ-005", "high", "injection", "Invisible (zero-width) character in instruction file", path, line_at(text, m.start()),
                      f"U+{ord(m.group(0)):04X}", "Remove it. Invisible characters hide text from reviewers while the model still reads it.")
             break
         for m in BIDI_RE.finditer(text):
-            self.add("INJ-005", "high", "injection", "Bidirectional control character in instruction file", path, text.count("\n", 0, m.start()) + 1,
+            self.add("INJ-005", "high", "injection", "Bidirectional control character in instruction file", path, line_at(text, m.start()),
                      f"U+{ord(m.group(0)):04X}", "Remove it. Bidi overrides make displayed text differ from what the model reads.")
             break
         for m in TAG_CHARS_RE.finditer(text):
-            self.add("INJ-005", "critical", "injection", "Unicode tag characters (hidden ASCII) in instruction file", path, text.count("\n", 0, m.start()) + 1,
+            self.add("INJ-005", "critical", "injection", "Unicode tag characters (hidden ASCII) in instruction file", path, line_at(text, m.start()),
                      f"U+{ord(m.group(0)):05X}", "Remove them. Tag characters encode invisible instructions that some models decode.")
             break
         for m in HTML_COMMENT_RE.finditer(text):
             body = m.group(1).strip()
             if len(body) > 20 and IMPERATIVE_RE.search(body):
-                self.add("INJ-006", "medium", "injection", "HTML comment containing instructions", path, text.count("\n", 0, m.start()) + 1, body[:120],
+                self.add("INJ-006", "medium", "injection", "HTML comment containing instructions", path, line_at(text, m.start()), body[:120],
                          "Rendered Markdown hides comments from readers but not from the model. Move the text into the open or delete it.")
         for m in BASE64_BLOB_RE.finditer(text):
             blob = m.group(0)
             if shannon_entropy(blob) > 4.0:
-                self.add("INJ-007", "medium", "injection", "Long base64-looking blob in instruction file", path, text.count("\n", 0, m.start()) + 1, blob[:60] + "...",
+                self.add("INJ-007", "medium", "injection", "Long base64-looking blob in instruction file", path, line_at(text, m.start()), blob[:60] + "...",
                          "Decode and review it, or remove it. Encoded payloads are a common way to smuggle instructions past review.")
                 break
 
@@ -588,7 +619,7 @@ class Auditor:
         if m:
             tools = m.group(2)
             if re.search(r"\bBash(\((\*|\s*)\))?(\s|,|$)", tools) or "Bash(*)" in tools:
-                self.add("SKILL-001", "medium", "skill", "Skill or command pre-approves unrestricted Bash", path, text[:text.find(m.group(0))].count("\n") + 1, m.group(0).strip(),
+                self.add("SKILL-001", "medium", "skill", "Skill or command pre-approves unrestricted Bash", path, line_at(text, text.find(m.group(0))), m.group(0).strip(),
                          "Grant specific commands, for example Bash(python3 scripts/*), and keep the grant short-lived.")
             if re.search(r"\b(Write|Edit)(\((\*|\*\*)?\))?(\s|,|$)", tools):
                 self.add("SKILL-001", "low", "skill", "Skill or command pre-approves writes everywhere", path, None, m.group(0).strip(), "Scope the write grant to the paths the skill needs.")

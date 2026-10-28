@@ -152,7 +152,7 @@ def set_outputs(values: dict[str, str], override: str | None = None) -> None:
     append_file("GITHUB_OUTPUT", "".join(f"{k}={v}\n" for k, v in values.items()), override)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default=".", help="directory to audit")
     ap.add_argument("--extra", action="append", default=[], help="additional file to audit (repeatable)")
@@ -192,6 +192,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::{cmd} {loc},title={f['id']}::{f['title']}")
     print(f"{TOOL_NAME}: {len(findings)} finding(s), highest severity {highest}, gate {gate} (fail-on {args.fail_on})")
     return 1 if gate == "fail" else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the action. Bad input ends with a one-line ::error:: and exit code 2, never a traceback."""
+    try:
+        return _main(argv)
+    except OSError as exc:  # an output path that cannot be written, a file that vanished mid-run
+        target = f" {exc.filename}" if exc.filename else ""
+        print(f"::error::{TOOL_NAME}: cannot read or write{target}: {exc.strerror or exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - last resort so a CI log shows one clear line
+        print(f"::error::{TOOL_NAME}: internal error ({type(exc).__name__}: {exc}). Please report it at https://github.com/basitalisandhu/security-actions/issues", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
